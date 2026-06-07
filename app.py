@@ -319,11 +319,21 @@ def seed_security_once():
             execute("INSERT INTO roles_sistema(rol,descripcion,permisos_json,activo) VALUES(?,?,?,1)", (rol, f"Rol {rol}", json.dumps(permisos, ensure_ascii=False)))
         except Exception:
             pass
-    admin = query("SELECT id FROM usuarios_sistema WHERE usuario=?", (ADMIN_USER,), one=True)
+    # Usuario administrador inicial / recuperación.
+    # Se fuerza la actualización del password y permisos para evitar que una base previa
+    # deje bloqueado el acceso en Render o en pruebas locales.
+    admin = query("SELECT id FROM usuarios_sistema WHERE LOWER(usuario)=LOWER(?)", (ADMIN_USER,), one=True)
+    admin_hash = generate_password_hash(ADMIN_PASSWORD)
+
     if not admin:
         execute("""INSERT INTO usuarios_sistema(nombre,usuario,email,password_hash,rol,udn_permitidas,activo,fecha_creacion)
                    VALUES(?,?,?,?,?,?,1,?)""",
-                ("Administrador del Sistema", ADMIN_USER, "", generate_password_hash(ADMIN_PASSWORD), "Administrador", "TODAS", now_str()))
+                ("Administrador del Sistema", ADMIN_USER, "", admin_hash, "Administrador", "TODAS", now_str()))
+    else:
+        execute("""UPDATE usuarios_sistema
+                   SET usuario=?, nombre=?, password_hash=?, rol=?, udn_permitidas=?, activo=1
+                   WHERE id=?""",
+                (ADMIN_USER, "Administrador del Sistema", admin_hash, "Administrador", "TODAS", admin["id"]))
 
 
 def audit(accion, modulo="Sistema", detalle=""):
@@ -399,9 +409,10 @@ def health():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        usuario = request.form.get("usuario", "").strip()
+        # Acepta name="usuario" y name="username" para evitar errores entre versiones de login.html.
+        usuario = (request.form.get("usuario") or request.form.get("username") or "").strip()
         password = request.form.get("password", "")
-        row = query("SELECT * FROM usuarios_sistema WHERE usuario=? AND activo=1", (usuario,), one=True)
+        row = query("SELECT * FROM usuarios_sistema WHERE LOWER(usuario)=LOWER(?) AND activo=1", (usuario,), one=True)
         if row and check_password_hash(row["password_hash"], password):
             session.clear()
             session["user_id"] = row["id"]
