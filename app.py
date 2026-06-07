@@ -438,8 +438,31 @@ def log(candidato_id, accion, detalle, usuario="Sistema"):
     execute("INSERT INTO actividad(candidato_id,accion,detalle,usuario,fecha) VALUES(?,?,?,?,?)", (candidato_id, accion, detalle, usuario, now_str()))
 
 def next_folio():
-    row = query("SELECT COUNT(*) c FROM candidatos", one=True)
-    return f"CH-{(row['c'] or 0) + 1001}"
+    """Genera un folio CH-#### sin repetir.
+
+    Antes se usaba COUNT(*) y eso podia chocar cuando la base ya tenia
+    folios antiguos, eliminados o importaciones repetidas. Ahora busca el
+    mayor consecutivo existente y valida que el folio no exista antes de
+    devolverlo.
+    """
+    rows = query("SELECT folio FROM candidatos WHERE folio LIKE 'CH-%'")
+    max_num = 1000
+    for r in rows:
+        folio = (r["folio"] or "").strip()
+        try:
+            num = int(folio.replace("CH-", "").strip())
+            if num > max_num:
+                max_num = num
+        except Exception:
+            continue
+
+    next_num = max_num + 1
+    while True:
+        folio = f"CH-{next_num}"
+        exists = query("SELECT id FROM candidatos WHERE folio=?", (folio,), one=True)
+        if not exists:
+            return folio
+        next_num += 1
 
 def ensure_docs(candidato_id):
     row = query("SELECT COUNT(*) c FROM documentacion WHERE candidato_id=?", (candidato_id,), one=True)
@@ -519,10 +542,24 @@ def import_rys_excel(path):
             updated += 1
             cid = exists["id"]
         else:
-            cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,puesto,udn,reclutador,fecha_entrevista,etapa,estatus_macro,motivo_rechazo,fecha_registro,fecha_actualizacion,comentarios)
-                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                      (next_folio(), nombre, telefono, puesto, almacen, reclutador, fecha_ent, etapa, macro, motivo, now_str(), now_str(), "Importado desde Excel RyS"))
-            created += 1
+            # Insercion robusta: evita que una importacion se detenga por folio duplicado.
+            # Si existe choque de folio, se genera otro consecutivo y se reintenta.
+            cid = None
+            last_error = None
+            for _ in range(10):
+                try:
+                    cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,puesto,udn,reclutador,fecha_entrevista,etapa,estatus_macro,motivo_rechazo,fecha_registro,fecha_actualizacion,comentarios)
+                                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                              (next_folio(), nombre, telefono, puesto, almacen, reclutador, fecha_ent, etapa, macro, motivo, now_str(), now_str(), "Importado desde Excel RyS"))
+                    created += 1
+                    break
+                except sqlite3.IntegrityError as e:
+                    last_error = e
+                    if "candidatos.folio" in str(e) or "UNIQUE constraint failed" in str(e):
+                        continue
+                    raise
+            if cid is None:
+                raise last_error or Exception("No fue posible generar un folio unico para el candidato")
         ensure_docs(cid)
         for table, col, val in [("catalogo_puestos", "puesto", puesto), ("catalogo_udn", "almacen", almacen), ("catalogo_reclutadores", "reclutador", reclutador)]:
             if val:
@@ -751,9 +788,22 @@ def candidato_nuevo():
         nombre = request.form.get("nombre", "").strip().upper(); puesto = request.form.get("puesto", "").strip().upper()
         if not nombre or not puesto:
             flash("Nombre y puesto son obligatorios.", "error"); return redirect(url_for("candidato_nuevo"))
-        cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,email,region,localidad,udn,puesto,reclutador,fecha_entrevista,etapa,estatus_macro,fecha_registro,fecha_actualizacion,comentarios)
-                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (next_folio(), nombre, request.form.get("telefono",""), request.form.get("email",""), request.form.get("region","").upper(), request.form.get("localidad","").upper(), request.form.get("udn","").upper(), puesto, request.form.get("reclutador","").upper(), request.form.get("fecha_entrevista",""), "Registro", "Reclutamiento", now_str(), now_str(), "Registro manual"))
+        cid = None
+        last_error = None
+        for _ in range(10):
+            try:
+                cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,email,region,localidad,udn,puesto,reclutador,fecha_entrevista,etapa,estatus_macro,fecha_registro,fecha_actualizacion,comentarios)
+                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                          (next_folio(), nombre, request.form.get("telefono",""), request.form.get("email",""), request.form.get("region","").upper(), request.form.get("localidad","").upper(), request.form.get("udn","").upper(), puesto, request.form.get("reclutador","").upper(), request.form.get("fecha_entrevista",""), "Registro", "Reclutamiento", now_str(), now_str(), "Registro manual"))
+                break
+            except sqlite3.IntegrityError as e:
+                last_error = e
+                if "candidatos.folio" in str(e) or "UNIQUE constraint failed" in str(e):
+                    continue
+                raise
+        if cid is None:
+            flash(f"No fue posible generar un folio unico: {last_error}", "error")
+            return redirect(url_for("candidato_nuevo"))
         ensure_docs(cid); log(cid, "Registro", "Alta manual", "RH")
         flash("Candidato registrado correctamente.", "success")
         return redirect(url_for("candidato_detalle", candidato_id=cid))
