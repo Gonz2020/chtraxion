@@ -1,942 +1,1194 @@
 # -*- coding: utf-8 -*-
 """
-TRAXION Access Kiosk Definitivo
-Web Flask + SQLite + Scanner QR USB + Cámara OpenCV/pyzbar opcional.
-
-Flujo recomendado:
-- Producción: scanner QR USB HID.
-- Pruebas / respaldo: botón Cámara OpenCV.
+Plataforma Integral de Capital Humano Traxion - Fase 2.7 a 3.0
+De registro a laborar: expediente digital, capacitación/DC3, firma electrónica,
+integración Access Kiosk, dashboard corporativo, IA avanzada y multi UDN.
 """
-
-import os
-import re
-import sqlite3
-import uuid
-from datetime import datetime, date, time as dtime
+from __future__ import annotations
+import os, json, sqlite3
 from pathlib import Path
-
+from datetime import datetime, date
 import pandas as pd
-from flask import Flask, render_template, request, jsonify, send_file
-import qrcode
-
-try:
-    import cv2
-    from pyzbar.pyzbar import decode
-except Exception:
-    cv2 = None
-    decode = None
-
-try:
-    import pyttsx3
-except Exception:
-    pyttsx3 = None
-
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from werkzeug.utils import secure_filename
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_DIR = APP_DIR / "Data"
-REPORT_DIR = APP_DIR / "Reportes"
-QR_DIR = APP_DIR / "QR_Visitantes"
-PHOTO_DIR = APP_DIR / "static" / "photos"
-DB_PATH = DATA_DIR / "traxion_access.sqlite"
-EXCEL_EMPLEADOS = DATA_DIR / "Base_Credenciales_Traxion_actualizado.xlsx"
-
-for d in [DATA_DIR, REPORT_DIR, QR_DIR, PHOTO_DIR]:
+DATA_DIR = APP_DIR / "data"
+UPLOAD_DIR = APP_DIR / "uploads"
+REPORT_DIR = APP_DIR / "reports"
+LOG_DIR = APP_DIR / "logs"
+for d in [DATA_DIR, UPLOAD_DIR, REPORT_DIR, LOG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+DB_PATH = DATA_DIR / "capital_humano_traxion.db"
+EXCEL_BASE = DATA_DIR / "DESARROLLO AT - SISTEMA.xlsx"
+
 app = Flask(__name__)
+app.secret_key = "traxion_ch_fase2_6_ia_reportes_admin"
+
+ETAPAS = [
+    "Registro", "Entrevista", "Oferta Laboral", "Servicio Medico",
+    "Evaluacion Tecnica", "Documentacion", "Induccion", "Entrega Operaciones", "Activo"
+]
+ESTATUS_MACRO = {
+    "Registro": "Reclutamiento",
+    "Entrevista": "Reclutamiento",
+    "Oferta Laboral": "Reclutamiento",
+    "Servicio Medico": "Reclutamiento",
+    "Evaluacion Tecnica": "Reclutamiento",
+    "Documentacion": "Contratacion",
+    "Induccion": "Contratacion",
+    "Entrega Operaciones": "Contratacion",
+    "Activo": "Activo",
+}
+CHECK_OFERTA = ["Sueldo", "Prestaciones", "Bonos", "Horario", "Lugar de trabajo", "Fecha primer pago"]
+CHECK_DOCS = ["INE", "CURP", "RFC / Constancia fiscal", "NSS", "Cuenta bancaria", "Comprobante domicilio", "Acta nacimiento", "Solicitud/CV"]
+RESULTADOS = ["Pendiente", "Apto", "Apto Condicionado", "No Apto"]
+
+ENTREVISTA_BASE = {
+    "MONTACARGUISTA": [
+        "¿Cuánto tiempo de experiencia tiene operando montacargas?",
+        "¿Qué tipo de montacargas ha operado?",
+        "¿Cuenta con licencia o constancia de manejo de montacargas?",
+        "¿Ha trabajado con WMS, SAP o handheld?",
+        "¿Ha tenido incidentes o accidentes operando equipo?",
+        "¿Está disponible para rolar turnos y trabajar tiempo extra?"
+    ],
+    "PATINERO": [
+        "¿Cuánto tiempo de experiencia tiene usando patín hidráulico o eléctrico?",
+        "¿Ha realizado surtido, recibo o embarques?",
+        "¿Ha trabajado con handheld, WMS o SAP?",
+        "¿Puede realizar actividades de carga, descarga y acomodo?",
+        "¿Está disponible para rolar turnos?"
+    ],
+    "GENERAL": [
+        "Cuéntame brevemente su experiencia laboral reciente.",
+        "¿Por qué le interesa la vacante?",
+        "¿Tiene disponibilidad de horario?",
+        "¿Cuenta con documentación completa?",
+        "¿Tiene experiencia en almacén o logística?"
+    ]
+}
+
+INDUCCION_CHECKLIST = ["Inducción general", "Reglamento interno", "Seguridad y EPP", "Recorrido operativo", "Entrega a jefe directo", "Alta biométrica", "Gafete", "Uniforme/EPP"]
+
+SLA_DIAS = {
+    "Registro": 1,
+    "Entrevista": 1,
+    "Oferta Laboral": 1,
+    "Servicio Medico": 1,
+    "Evaluacion Tecnica": 1,
+    "Documentacion": 2,
+    "Induccion": 1,
+    "Entrega Operaciones": 1,
+    "Activo": 0,
+}
 
 
-# ==============================
-# DB
-# ==============================
+def now_str(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def today_str(): return date.today().strftime("%Y-%m-%d")
+
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+def execute(sql, params=()):
+    with get_conn() as conn:
+        cur = conn.cursor(); cur.execute(sql, params); conn.commit(); return cur.lastrowid
+
+def query(sql, params=(), one=False):
+    with get_conn() as conn:
+        cur = conn.cursor(); cur.execute(sql, params); rows = cur.fetchall()
+        return (rows[0] if rows else None) if one else rows
+
+def clean(v):
+    if pd.isna(v): return ""
+    s = str(v).strip()
+    if s.lower() == "nan": return ""
+    if s.endswith(".0") and s[:-2].isdigit(): s = s[:-2]
+    return s
 
 def column_exists(conn, table, column):
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return any(r["name"] == column for r in rows)
+    return any(r["name"] == column for r in conn.execute(f"PRAGMA table_info({table})").fetchall())
 
-
-def ensure_column(conn, table, column, sql_type):
+def ensure_column(conn, table, column, definition):
     if not column_exists(conn, table, column):
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+        try: conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except Exception: pass
 
 
 def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS empleados (
+    print("[1/4] Inicializando base de datos...")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS candidatos(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            empleado TEXT UNIQUE NOT NULL,
-            nombre TEXT,
-            apellido TEXT,
-            nombre_completo TEXT,
+            folio TEXT UNIQUE,
+            nombre TEXT NOT NULL,
+            telefono TEXT,
+            email TEXT,
+            region TEXT,
+            localidad TEXT,
+            udn TEXT,
             puesto TEXT,
-            area TEXT,
-            turno TEXT,
-            tipo_personal TEXT DEFAULT 'OPERATIVO',
-            archivo_foto TEXT,
-            activo INTEGER DEFAULT 1,
-            fecha_importacion TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS registros (
+            reclutador TEXT,
+            etapa TEXT DEFAULT 'Registro',
+            estatus_macro TEXT DEFAULT 'Reclutamiento',
+            fecha_entrevista TEXT,
+            fecha_registro TEXT,
+            fecha_actualizacion TEXT,
+            motivo_rechazo TEXT,
+            comentarios TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS hoja_ruta(
+            candidato_id INTEGER PRIMARY KEY,
+            ruta_transporte TEXT, parada TEXT,
+            experiencia_json TEXT, handheld TEXT, wms TEXT, sap TEXT, excel TEXT,
+            patin TEXT, montacargas TEXT,
+            reingreso_traxion TEXT, reingreso_cliente TEXT,
+            emergencia_nombre TEXT, emergencia_parentesco TEXT, emergencia_telefono TEXT,
+            updated_at TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS oferta_laboral(
+            candidato_id INTEGER PRIMARY KEY,
+            sueldo TEXT, prestaciones TEXT, bonos TEXT, horario TEXT, lugar_trabajo TEXT,
+            fecha_primer_pago TEXT, checklist_json TEXT, updated_at TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS evaluaciones(
+            candidato_id INTEGER PRIMARY KEY,
+            medico_resultado TEXT, medico_motivo TEXT,
+            tecnico_resultado TEXT, tecnico_tipo TEXT, tecnico_motivo TEXT,
+            rfc_actualizado TEXT DEFAULT 'No', costo_rfc REAL DEFAULT 0,
+            updated_at TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS documentacion(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            empleado TEXT,
-            nombre_completo TEXT,
-            fecha TEXT,
-            hora TEXT,
-            tipo_evento TEXT,
-            turno_detectado TEXT,
-            estatus TEXT,
-            mensaje TEXT,
-            origen TEXT DEFAULT 'SCANNER',
-            raw_qr TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS visitantes (
+            candidato_id INTEGER,
+            documento TEXT, estado TEXT DEFAULT 'Pendiente', archivo TEXT, updated_at TEXT
+        )""")
+        c.execute("CREATE TABLE IF NOT EXISTS catalogo_puestos(id INTEGER PRIMARY KEY AUTOINCREMENT, puesto TEXT UNIQUE, perfil TEXT DEFAULT 'OPERATIVO', activo INTEGER DEFAULT 1)")
+        c.execute("CREATE TABLE IF NOT EXISTS catalogo_udn(id INTEGER PRIMARY KEY AUTOINCREMENT, almacen TEXT UNIQUE, region TEXT, localidad TEXT, activo INTEGER DEFAULT 1)")
+        c.execute("CREATE TABLE IF NOT EXISTS catalogo_reclutadores(id INTEGER PRIMARY KEY AUTOINCREMENT, reclutador TEXT UNIQUE, region TEXT, activo INTEGER DEFAULT 1)")
+        c.execute("CREATE TABLE IF NOT EXISTS headcount(id INTEGER PRIMARY KEY AUTOINCREMENT, udn TEXT, puesto TEXT, requerido INTEGER DEFAULT 0, activo INTEGER DEFAULT 0)")
+        c.execute("CREATE TABLE IF NOT EXISTS actividad(id INTEGER PRIMARY KEY AUTOINCREMENT, candidato_id INTEGER, accion TEXT, detalle TEXT, usuario TEXT, fecha TEXT)")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS entrevistas(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            qr_id TEXT UNIQUE,
+            candidato_id INTEGER,
+            tipo TEXT,
+            preguntas_json TEXT,
+            respuestas_json TEXT,
+            resultado TEXT DEFAULT 'Pendiente',
+            evaluador TEXT,
+            comentarios TEXT,
+            updated_at TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS induccion(
+            candidato_id INTEGER PRIMARY KEY,
+            fecha_induccion TEXT,
+            checklist_json TEXT,
+            responsable TEXT,
+            observaciones TEXT,
+            resultado TEXT DEFAULT 'Pendiente',
+            updated_at TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS expediente_digital(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidato_id INTEGER,
+            categoria TEXT,
+            documento TEXT,
+            archivo TEXT,
+            estatus TEXT DEFAULT 'Cargado',
+            observaciones TEXT,
+            fecha TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS capacitacion_dc3(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidato_id INTEGER,
+            curso TEXT,
+            fecha_curso TEXT,
+            instructor TEXT,
+            resultado TEXT DEFAULT 'Pendiente',
+            dc3_generado TEXT DEFAULT 'No',
+            archivo_dc3 TEXT,
+            observaciones TEXT,
+            fecha TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS firmas_electronicas(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidato_id INTEGER,
+            documento TEXT,
+            firmante TEXT,
+            archivo_firma TEXT,
+            archivo_pdf TEXT,
+            fecha TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS access_kiosk_integracion(
+            candidato_id INTEGER PRIMARY KEY,
+            empleado_id TEXT,
+            qr_generado TEXT DEFAULT 'No',
+            estatus TEXT DEFAULT 'Pendiente',
+            fecha TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios_roles(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT,
-            empresa TEXT,
-            destino_empresa TEXT DEFAULT 'TRAXION',
-            tipo_visita TEXT,
-            persona_visita TEXT,
-            motivo TEXT,
-            activo INTEGER DEFAULT 1,
-            fecha_registro TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS visitas_registros (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            qr_id TEXT,
-            nombre TEXT,
-            empresa TEXT,
-            destino_empresa TEXT DEFAULT 'TRAXION',
-            tipo_visita TEXT,
-            persona_visita TEXT,
-            fecha TEXT,
-            hora TEXT,
-            tipo_evento TEXT,
-            mensaje TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Migracion segura para bases existentes
-    ensure_column(conn, "visitantes", "destino_empresa", "TEXT DEFAULT 'TRAXION'")
-    ensure_column(conn, "visitas_registros", "destino_empresa", "TEXT DEFAULT 'TRAXION'")
-    ensure_column(conn, "visitas_registros", "tipo_visita", "TEXT")
-    ensure_column(conn, "visitas_registros", "persona_visita", "TEXT")
-
-    conn.commit()
-    conn.close()
+            usuario TEXT UNIQUE,
+            rol TEXT,
+            udn TEXT,
+            activo INTEGER DEFAULT 1
+        )""")
+        conn.commit()
+    seed_from_excel_once()
 
 
+def log(candidato_id, accion, detalle, usuario="Sistema"):
+    execute("INSERT INTO actividad(candidato_id,accion,detalle,usuario,fecha) VALUES(?,?,?,?,?)", (candidato_id, accion, detalle, usuario, now_str()))
 
-def normalizar_empleado(valor):
-    """Normaliza el numero de empleado para que Excel/QR/SQLite coincidan.
-    - Acepta 10116507, 10116507.0, ID:10116507
-    - Prioriza empleados Traxion que inician con 10 u 11 y tienen 8 digitos
-    """
-    if valor is None:
-        return ""
-    txt = str(valor).strip()
-    if not txt or txt.lower() == "nan":
-        return ""
+def next_folio():
+    row = query("SELECT COUNT(*) c FROM candidatos", one=True)
+    return f"CH-{(row['c'] or 0) + 1001}"
 
-    # Si Excel lo lee como numero flotante: 10116507.0
-    m_float = re.fullmatch(r"(\d+)\.0+", txt)
-    if m_float:
-        txt = m_float.group(1)
-
-    # Quitar espacios, guiones y separadores comunes
-    txt_compacto = re.sub(r"[^0-9]", "", txt)
-
-    # Buscar empleado valido: inicia 10 u 11 y tiene 8 digitos
-    m_emp = re.search(r"(?:10|11)\d{6}", txt_compacto)
-    if m_emp:
-        return m_emp.group(0)
-
-    # Respaldo: si solo trae digitos, devolverlos sin .0
-    if txt_compacto:
-        return txt_compacto
-
-    return txt
-
-def parse_bool_activo(valor):
-    if pd.isna(valor):
-        return 1
-    txt = str(valor).strip().upper()
-    if txt in ["BAJA", "INACTIVO", "NO", "0", "FALSE", "FALSO", "CANCELADO"]:
-        return 0
-    return 1
+def ensure_docs(candidato_id):
+    row = query("SELECT COUNT(*) c FROM documentacion WHERE candidato_id=?", (candidato_id,), one=True)
+    if row and row["c"] > 0: return
+    for doc in CHECK_DOCS:
+        execute("INSERT INTO documentacion(candidato_id,documento,estado,updated_at) VALUES(?,?,?,?)", (candidato_id, doc, "Pendiente", now_str()))
 
 
-def detectar_tipo_personal(row):
-    texto = " ".join(str(v) for v in row.to_dict().values()).upper()
-    if "ADMIN" in texto or "ADMINISTRATIVO" in texto or "ESPECIAL" in texto:
-        return "ADMINISTRATIVO"
-    return "OPERATIVO"
-
-
-def importar_empleados_excel(path=EXCEL_EMPLEADOS):
-    if not Path(path).exists():
-        return 0
-
-    df = pd.read_excel(path)
-    colmap = {str(c).lower().strip(): c for c in df.columns}
-
-    def col(*names):
-        for n in names:
-            if n.lower() in colmap:
-                return colmap[n.lower()]
-        return None
-
-    c_emp = col("empleado", "num_empleado", "id", "id empleado", "numero empleado")
-    c_nom = col("nombre", "name")
-    c_ape = col("apellido", "apellidos", "apellido paterno")
-    c_puesto = col("puesto", "posicion", "cargo")
-    c_area = col("area", "departamento")
-    c_turno = col("turno", "shift")
-    c_foto = col("archivo_foto", "foto", "photofile")
-    c_estatus = col("estatus", "status", "activo", "estado")
-
-    if not c_emp:
-        raise ValueError("No se encontró columna 'empleado' en el Excel.")
-
-    conn = get_conn()
-    cur = conn.cursor()
-    total = 0
-
-    for _, row in df.iterrows():
-        empleado = normalizar_empleado(row.get(c_emp, ""))
-        if not empleado:
-            continue
-
-        nombre = str(row.get(c_nom, "")).strip() if c_nom else ""
-        apellido = str(row.get(c_ape, "")).strip() if c_ape else ""
-        puesto = str(row.get(c_puesto, "")).strip() if c_puesto else ""
-        area = str(row.get(c_area, "")).strip() if c_area else ""
-        turno = str(row.get(c_turno, "")).strip() if c_turno else ""
-        foto = str(row.get(c_foto, "")).strip() if c_foto else ""
-        activo = parse_bool_activo(row.get(c_estatus, "")) if c_estatus else 1
-        nombre_completo = f"{nombre} {apellido}".strip() or empleado
-        tipo_personal = detectar_tipo_personal(row)
-
-        cur.execute("""
-            INSERT INTO empleados(empleado,nombre,apellido,nombre_completo,puesto,area,turno,tipo_personal,archivo_foto,activo)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(empleado) DO UPDATE SET
-                nombre=excluded.nombre,
-                apellido=excluded.apellido,
-                nombre_completo=excluded.nombre_completo,
-                puesto=excluded.puesto,
-                area=excluded.area,
-                turno=excluded.turno,
-                tipo_personal=excluded.tipo_personal,
-                archivo_foto=excluded.archivo_foto,
-                activo=excluded.activo,
-                fecha_importacion=CURRENT_TIMESTAMP
-        """, (empleado, nombre, apellido, nombre_completo, puesto, area, turno, tipo_personal, foto, activo))
-        total += 1
-
-    conn.commit()
-    conn.close()
-    return total
-
-
-# ==============================
-# Reglas
-# ==============================
-def limpiar_qr(valor):
-    """
-    Limpia la lectura del scanner/camara y devuelve:
-    - VISITA:XXXXXXXXXXXX cuando sea QR de visitante/proveedor.
-    - Numero de empleado Traxion de 8 digitos que inicia con 10 o 11.
-
-    Importante:
-    Muchos gafetes traen fechas/vigencias como 2026. Antes el sistema tomaba
-    el primer numero encontrado y por eso buscaba "2026" en empleados.
-    Esta version primero busca patrones de empleado 10xxxxxx / 11xxxxxx.
-    """
-    if valor is None:
-        return ""
-
-    txt_original = str(valor).strip()
-    if not txt_original:
-        return ""
-
-    txt = txt_original.replace("\\r", " ").replace("\\n", " ")
-    txt = txt.replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    txt = re.sub(r"\s+", " ", txt).strip()
-    upper = txt.upper()
-
-    # QR de visita/proveedor generado por esta aplicacion
-    m_visita = re.search(r"VISITA\s*[:=\-]\s*([A-Z0-9]{8,40})", upper)
-    if m_visita:
-        return "VISITA:" + m_visita.group(1).strip()
-    if upper.startswith("VISITA:"):
-        return upper
-
-    # Patrones directos: ID:10116507, Empleado:10116507, etc.
-    patrones = [
-        r'"EMPLEADO"\s*:\s*"?((?:10|11)\d{6})"?',
-        r"'EMPLEADO'\s*:\s*'?((?:10|11)\d{6})'?",
-        r"\bEMPLEADO\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-        r"\bNUM[_ ]?EMPLEADO\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-        r"\bNO[_ ]?EMPLEADO\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-        r"\bID\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-        r"\bEMP\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-        r"\bCLAVE\b\s*[:=|\- ]+\s*((?:10|11)\d{6})",
-    ]
-    for patron in patrones:
-        m = re.search(patron, upper, flags=re.IGNORECASE)
-        if m:
-            return m.group(1).strip()
-
-    # Busqueda global: toma solo numeros de empleado que empiezan con 10 o 11.
-    # Sirve para lecturas largas del QR con CURP, NSS, vigencia, nombre, etc.
-    m = re.search(r"(?<!\d)((?:10|11)\d{6})(?!\d)", upper)
-    if m:
-        return m.group(1).strip()
-
-    # Si el scanner concatena todo sin espacios, buscar dentro de todos los digitos.
-    compact_digits = re.sub(r"\D", "", upper)
-    m = re.search(r"(?:10|11)\d{6}", compact_digits)
-    if m:
-        return m.group(0).strip()
-
-    # Respaldo para pruebas: aceptar 8 digitos exactos, pero evitar 2026 y fechas cortas.
-    m = re.fullmatch(r"\D*(\d{8})\D*", upper)
-    if m:
-        return m.group(1).strip()
-
-    return ""
-def entre(h, ini, fin):
-    return ini <= h <= fin
-
-
-def tiene_entrada_manana(conn, empleado, fecha):
-    row = conn.execute("""
-        SELECT id FROM registros
-        WHERE empleado=? AND fecha=? AND tipo_evento='ENTRADA'
-          AND hora BETWEEN '05:00:00' AND '10:59:59'
-        LIMIT 1
-    """, (empleado, fecha)).fetchone()
-    return row is not None
-
-
-def ultimo_evento_hoy(conn, empleado, fecha):
-    return conn.execute("""
-        SELECT * FROM registros
-        WHERE empleado=? AND fecha=? AND estatus IN ('OK','RETARDO','FUERA HORARIO')
-        ORDER BY id DESC LIMIT 1
-    """, (empleado, fecha)).fetchone()
-
-
-def decidir_evento(conn, emp, fecha, now):
-    empleado = emp["empleado"]
-    tipo_personal = (emp["tipo_personal"] or "OPERATIVO").upper()
-    h = now.time()
-    ultimo = ultimo_evento_hoy(conn, empleado, fecha)
-
-    if tipo_personal in ["ADMINISTRATIVO", "ESPECIAL", "ADMIN"]:
-        if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-            return "SALIDA", "ADMINISTRATIVO", "OK", "Hasta luego"
-        return "ENTRADA", "ADMINISTRATIVO", "OK", "Bienvenido"
-
-    if entre(h, dtime(5, 40), dtime(6, 15)):
-        if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-            return "DUPLICADO", "TURNO 1", "ALERTA", "Ya tienes entrada registrada"
-        return "ENTRADA", "TURNO 1", "OK", "Bienvenido"
-
-    if entre(h, dtime(6, 16), dtime(11, 59)):
-        if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-            return "DUPLICADO", "TURNO 1", "ALERTA", "Ya tienes entrada registrada"
-        return "ENTRADA", "TURNO 1", "RETARDO", "Entrada con retardo"
-
-    if entre(h, dtime(13, 30), dtime(14, 30)):
-        if tiene_entrada_manana(conn, empleado, fecha):
-            if ultimo and ultimo["tipo_evento"] == "SALIDA":
-                return "DUPLICADO", "TURNO 1", "ALERTA", "Salida ya registrada"
-            return "SALIDA", "TURNO 1", "OK", "Hasta luego"
-        estatus = "OK" if h <= dtime(14, 15) else "RETARDO"
-        return "ENTRADA", "TURNO 2", estatus, "Bienvenido" if estatus == "OK" else "Entrada con retardo"
-
-    if entre(h, dtime(14, 31), dtime(16, 30)):
-        if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-            return "SALIDA", ultimo["turno_detectado"] or "TURNO 1", "OK", "Hasta luego"
-        return "ENTRADA", "TURNO 2", "RETARDO", "Entrada con retardo"
-
-    if entre(h, dtime(21, 0), dtime(23, 59)):
-        if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-            return "SALIDA", ultimo["turno_detectado"] or "TURNO 2", "OK", "Hasta luego"
-        return "ALERTA", "TURNO 2", "ALERTA", "No existe entrada activa"
-
-    if ultimo and ultimo["tipo_evento"] == "ENTRADA":
-        return "SALIDA", ultimo["turno_detectado"] or "NO DEFINIDO", "FUERA HORARIO", "Hasta luego"
-    return "ENTRADA", "NO DEFINIDO", "FUERA HORARIO", "Registro fuera de horario"
-
-
-def speak_async(text):
-    if not pyttsx3 or not text:
+def seed_from_excel_once():
+    if not EXCEL_BASE.exists():
+        print("[2/4] No existe Excel base; se crean catálogos mínimos.")
+        for p in ["AYUDANTE GENERAL", "MONTACARGUISTA", "PATINERO", "SURTIDOR", "AUDITOR", "SUPERVISOR"]:
+            try: execute("INSERT INTO catalogo_puestos(puesto) VALUES(?)", (p,))
+            except Exception: pass
         return
-    import threading
-    def run():
+    already = query("SELECT COUNT(*) c FROM catalogo_puestos", one=True)["c"]
+    if already and already > 0:
+        print("[2/4] Catálogos existentes; no se sobrescriben.")
+        return
+    print("[2/4] Cargando catálogos iniciales desde Excel...")
+    try:
+        xl = pd.ExcelFile(EXCEL_BASE)
+        puestos, udns, reclutadores = set(), set(), set()
+        if "RyS" in xl.sheet_names:
+            df = pd.read_excel(EXCEL_BASE, sheet_name="RyS").fillna("")
+            for v in df.get("PUESTO", []):
+                if clean(v): puestos.add(clean(v).upper())
+            for v in df.get("ALMACEN", []):
+                if clean(v): udns.add(clean(v).upper())
+            for v in df.get("RECLUTADOR", []):
+                if clean(v): reclutadores.add(clean(v).upper())
+        if "Catálogo de puestos" in xl.sheet_names:
+            raw = pd.read_excel(EXCEL_BASE, sheet_name="Catálogo de puestos", header=None).fillna("")
+            for row in raw.values:
+                for cell in row:
+                    txt = clean(cell).upper()
+                    if txt and len(txt) > 3 and len(txt) < 70 and txt not in ["PUESTO", "CÓDIGO DE PUESTO"]:
+                        if any(k in txt for k in ["AYUDANTE", "MONTAC", "PATIN", "SURTID", "AUDITOR", "SUPERV", "OPERADOR", "AUXILIAR", "ANALISTA", "COORD", "ENFERM", "CAPTUR"]):
+                            puestos.add(txt)
+        for p in sorted(puestos):
+            try: execute("INSERT INTO catalogo_puestos(puesto) VALUES(?)", (p,))
+            except Exception: pass
+        for u in sorted(udns):
+            try: execute("INSERT INTO catalogo_udn(almacen, region, localidad) VALUES(?,?,?)", (u, "POR DEFINIR", "POR DEFINIR"))
+            except Exception: pass
+        for r in sorted(reclutadores):
+            try: execute("INSERT INTO catalogo_reclutadores(reclutador) VALUES(?)", (r,))
+            except Exception: pass
+        print(f"[2/4] Catálogos: puestos={len(puestos)}, udn={len(udns)}, reclutadores={len(reclutadores)}")
+    except Exception as e:
+        print("Error al cargar catálogos:", e)
+
+
+def import_rys_excel(path):
+    xl = pd.ExcelFile(path)
+    df = pd.read_excel(path, sheet_name="RyS").fillna("") if "RyS" in xl.sheet_names else pd.read_excel(path).fillna("")
+    created, updated = 0, 0
+    for _, row in df.iterrows():
+        nombre = clean(row.get("Nombre de Empleado\n(1er apelido + 2do + nombres en Mayusculas)", row.get("Nombre Completo", row.get("Nombre", "")))).upper()
+        telefono = clean(row.get("TELEFONO", row.get("Telefono", "")))
+        puesto = clean(row.get("PUESTO", row.get("Puesto", ""))).upper()
+        almacen = clean(row.get("ALMACEN", row.get("Almacen", row.get("UDN", "")))).upper()
+        reclutador = clean(row.get("RECLUTADOR", row.get("Reclutador", ""))).upper()
+        fecha_ent = clean(row.get("FECHA DE ENTREVISTA", ""))
+        motivo = clean(row.get("MOTIVO DE RECHAZO", ""))
+        estatus = clean(row.get("ESTATUS", "")).upper()
+        if not nombre or not puesto: continue
+        etapa = "Registro"
+        if "ENTREGADO" in estatus or "ACTIVO" in estatus: etapa = "Activo"
+        elif "SELECCION" in estatus or "ENTREVISTA" in estatus: etapa = "Entrevista"
+        elif "DECLINADO" in estatus or "RECHAZ" in estatus: etapa = "Evaluacion Tecnica"
+        macro = ESTATUS_MACRO.get(etapa, "Reclutamiento")
+        exists = query("SELECT id FROM candidatos WHERE nombre=? AND puesto=?", (nombre, puesto), one=True)
+        if exists:
+            execute("""UPDATE candidatos SET telefono=?, udn=?, reclutador=?, fecha_entrevista=?, etapa=?, estatus_macro=?, motivo_rechazo=?, fecha_actualizacion=? WHERE id=?""",
+                    (telefono, almacen, reclutador, fecha_ent, etapa, macro, motivo, now_str(), exists["id"]))
+            updated += 1
+            cid = exists["id"]
+        else:
+            cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,puesto,udn,reclutador,fecha_entrevista,etapa,estatus_macro,motivo_rechazo,fecha_registro,fecha_actualizacion,comentarios)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      (next_folio(), nombre, telefono, puesto, almacen, reclutador, fecha_ent, etapa, macro, motivo, now_str(), now_str(), "Importado desde Excel RyS"))
+            created += 1
+        ensure_docs(cid)
+        for table, col, val in [("catalogo_puestos", "puesto", puesto), ("catalogo_udn", "almacen", almacen), ("catalogo_reclutadores", "reclutador", reclutador)]:
+            if val:
+                try:
+                    if table == "catalogo_udn": execute("INSERT INTO catalogo_udn(almacen,region,localidad) VALUES(?,?,?)", (val,"POR DEFINIR","POR DEFINIR"))
+                    elif table == "catalogo_reclutadores": execute("INSERT INTO catalogo_reclutadores(reclutador) VALUES(?)", (val,))
+                    else: execute("INSERT INTO catalogo_puestos(puesto) VALUES(?)", (val,))
+                except Exception: pass
+    return created, updated
+
+
+def get_kpis():
+    total = query("SELECT COUNT(*) c FROM candidatos", one=True)["c"] or 0
+    proceso = query("SELECT COUNT(*) c FROM candidatos WHERE estatus_macro IN ('Reclutamiento','Contratacion')", one=True)["c"] or 0
+    activos = query("SELECT COUNT(*) c FROM candidatos WHERE estatus_macro='Activo' OR etapa='Activo'", one=True)["c"] or 0
+    docs = query("SELECT COUNT(*) c FROM candidatos WHERE etapa='Documentacion'", one=True)["c"] or 0
+    hoy = query("SELECT COUNT(*) c FROM candidatos WHERE substr(fecha_registro,1,10)=?", (today_str(),), one=True)["c"] or 0
+    rfc = query("SELECT COUNT(*) c, COALESCE(SUM(costo_rfc),0) costo FROM evaluaciones WHERE rfc_actualizado='Si'", one=True)
+    return {"total": total, "proceso": proceso, "activos": activos, "docs": docs, "hoy": hoy, "rfc": rfc["c"] or 0, "costo_rfc": rfc["costo"] or 0}
+
+
+def cobertura_por_puesto(limit=12):
+    # Si existe headcount cargado, la cobertura se calcula contra requerido real.
+    hc_count = query("SELECT COUNT(*) c FROM headcount", one=True)["c"] or 0
+    if hc_count:
+        rows = query("""
+            SELECT h.puesto,
+                   SUM(h.requerido) requerido,
+                   SUM(h.activo) activo_hc,
+                   (SELECT COUNT(*) FROM candidatos c WHERE c.puesto=h.puesto AND (c.etapa='Activo' OR c.estatus_macro='Activo')) activos
+            FROM headcount h
+            GROUP BY h.puesto
+            ORDER BY SUM(h.requerido) DESC
+            LIMIT ?
+        """, (limit,))
+        out=[]
+        for r in rows:
+            req = r["requerido"] or 0
+            act = r["activos"] or r["activo_hc"] or 0
+            vac = max(req-act, 0)
+            pct = int((act/req)*100) if req else 0
+            out.append({"puesto": r["puesto"], "total": req, "activos": act, "vacantes": vac, "pct": min(pct,100)})
+        return out
+
+    # Fallback: candidatos activos contra total importado por puesto.
+    rows = query("""
+        SELECT puesto,
+               COUNT(*) total,
+               SUM(CASE WHEN etapa='Activo' OR estatus_macro='Activo' THEN 1 ELSE 0 END) activos
+        FROM candidatos
+        WHERE puesto IS NOT NULL AND puesto<>''
+        GROUP BY puesto ORDER BY total DESC LIMIT ?
+    """, (limit,))
+    out = []
+    for r in rows:
+        total = r["total"] or 0; act = r["activos"] or 0
+        pct = int((act / total) * 100) if total else 0
+        out.append({"puesto": r["puesto"], "total": total, "activos": act, "vacantes": total-act, "pct": pct})
+    return out
+
+
+def etapa_counts():
+    rows = query("SELECT etapa, COUNT(*) total FROM candidatos GROUP BY etapa")
+    d = {e: 0 for e in ETAPAS}
+    for r in rows: d[r["etapa"]] = r["total"]
+    return d
+
+
+def parse_fecha(valor):
+    if not valor:
+        return None
+    txt = str(valor).strip()
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%Y %H:%M:%S"]:
         try:
-            engine = pyttsx3.init()
-            engine.setProperty("rate", 165)
-            engine.say(text)
-            engine.runAndWait()
+            return datetime.strptime(txt[:19] if fmt.endswith('%S') else txt[:10], fmt)
         except Exception:
             pass
-    threading.Thread(target=run, daemon=True).start()
-
-
-def registrar_scan(raw_qr, origen="SCANNER"):
-
-    codigo = limpiar_qr(raw_qr)
-    if codigo and not codigo.upper().startswith("VISITA:"):
-        codigo = normalizar_empleado(codigo)
-
-    # ==========================================
-    # Ignorar lecturas que no contienen empleado
-    # ==========================================
-    if not codigo:
-        return {
-            "ignore": True
-        }
-
-    fecha = datetime.now().strftime("%Y-%m-%d")
-    hora = datetime.now().strftime("%H:%M:%S")
-    now = datetime.now()
-
-    conn = get_conn()
-
-
-    if codigo.upper().startswith("VISITA:"):
-        return registrar_visitante_scan(conn, codigo)
-
-    emp = conn.execute("SELECT * FROM empleados WHERE empleado=?", (codigo,)).fetchone()
-
-    if not emp:
-        msg = "Llama a Capital Humano para su asistencia"
-        conn.execute("""
-            INSERT INTO registros(empleado,nombre_completo,fecha,hora,tipo_evento,turno_detectado,estatus,mensaje,origen,raw_qr)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
-        """, (codigo, "", fecha, hora, "NO ENCONTRADO", "", "ALERTA", msg, origen, raw_qr))
-        conn.commit()
-        conn.close()
-        speak_async(msg)
-        return {"ok": False, "status": "NO ENCONTRADO", "message": msg, "event_type": "NO ENCONTRADO", "time": hora}
-
-    if int(emp["activo"] or 0) == 0:
-        msg = "Acceso denegado"
-        conn.execute("""
-            INSERT INTO registros(empleado,nombre_completo,fecha,hora,tipo_evento,turno_detectado,estatus,mensaje,origen,raw_qr)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
-        """, (codigo, emp["nombre_completo"], fecha, hora, "DENEGADO", "", "ALERTA", msg, origen, raw_qr))
-        conn.commit()
-        data = dict(emp)
-        conn.close()
-        speak_async(msg)
-        return {"ok": False, "status": "ACCESO DENEGADO", "message": msg, "employee": data, "event_type": "DENEGADO", "time": hora}
-
-    reciente = ultimo_registro_reciente(conn, codigo, minutos=5)
-    if reciente:
-        msg = "Ya fue registrado hace menos de 5 minutos"
-        data = dict(emp)
-        conn.close()
-        speak_async(msg)
-        return {
-            "ok": False,
-            "duplicate": True,
-            "employee": data,
-            "event_type": "DUPLICADO",
-            "shift": reciente["turno_detectado"],
-            "status": "DUPLICADO",
-            "message": msg,
-            "time": hora
-        }
-
-    tipo, turno, estatus, mensaje = decidir_evento(conn, emp, fecha, now)
-
-    conn.execute("""
-        INSERT INTO registros(empleado,nombre_completo,fecha,hora,tipo_evento,turno_detectado,estatus,mensaje,origen,raw_qr)
-        VALUES(?,?,?,?,?,?,?,?,?,?)
-    """, (codigo, emp["nombre_completo"], fecha, hora, tipo, turno, estatus, mensaje, origen, raw_qr))
-    conn.commit()
-    data = dict(emp)
-    conn.close()
-
-    text_voice = f"{mensaje}, {emp['nombre_completo']}" if tipo in ["ENTRADA", "SALIDA"] else mensaje
-    speak_async(text_voice)
-
-    return {
-        "ok": estatus != "ALERTA",
-        "employee": data,
-        "event_type": tipo,
-        "shift": turno,
-        "status": estatus,
-        "message": text_voice,
-        "time": hora
-    }
-
-
-def registrar_visitante_scan(conn, qr_id):
-    fecha = datetime.now().strftime("%Y-%m-%d")
-    hora = datetime.now().strftime("%H:%M:%S")
-
-    vis = conn.execute("SELECT * FROM visitantes WHERE qr_id=? AND activo=1", (qr_id,)).fetchone()
-    if not vis:
-        conn.close()
-        return {
-            "ok": False,
-            "status": "VISITA NO VALIDA",
-            "message": "QR de visitante no registrado o inactivo",
-            "event_type": "DENEGADO",
-            "time": hora
-        }
-
-    ultimo = conn.execute("""
-        SELECT * FROM visitas_registros
-        WHERE qr_id=? AND fecha=?
-        ORDER BY id DESC LIMIT 1
-    """, (qr_id, fecha)).fetchone()
-
-    tipo = "ENTRADA" if not ultimo or ultimo["tipo_evento"] == "SALIDA" else "SALIDA"
-    msg = "Bienvenido" if tipo == "ENTRADA" else "Hasta luego"
-
-    destino_empresa = vis["destino_empresa"] if "destino_empresa" in vis.keys() and vis["destino_empresa"] else "TRAXION"
-    tipo_visita = vis["tipo_visita"] if "tipo_visita" in vis.keys() else "VISITA"
-    persona_visita = vis["persona_visita"] if "persona_visita" in vis.keys() else ""
-
-    conn.execute("""
-        INSERT INTO visitas_registros(
-            qr_id,nombre,empresa,destino_empresa,tipo_visita,persona_visita,
-            fecha,hora,tipo_evento,mensaje
-        )
-        VALUES(?,?,?,?,?,?,?,?,?,?)
-    """, (
-        qr_id,
-        vis["nombre"],
-        vis["empresa"],
-        destino_empresa,
-        tipo_visita,
-        persona_visita,
-        fecha,
-        hora,
-        tipo,
-        msg
-    ))
-
-    conn.commit()
-    data = dict(vis)
-    conn.close()
-
-    speak_async(f"{msg}, {vis['nombre']}")
-
-    return {
-        "ok": True,
-        "visitor": data,
-        "event_type": tipo,
-        "shift": "VISITANTE",
-        "status": "OK",
-        "message": f"{msg}, {vis['nombre']}",
-        "time": hora
-    }
-
-
-
-def ultimo_registro_reciente(conn, empleado, minutos=5):
-    """
-    Valida si el empleado ya fue registrado en los ultimos N minutos.
-    Si existe, NO se debe guardar otro registro.
-    """
-    row = conn.execute("""
-        SELECT *
-        FROM registros
-        WHERE empleado=?
-          AND datetime(created_at) >= datetime('now', ?)
-          AND estatus IN ('OK','RETARDO','FUERA HORARIO')
-        ORDER BY id DESC
-        LIMIT 1
-    """, (empleado, f"-{minutos} minutes")).fetchone()
-    return row
-
-# ==============================
-# Camera OpenCV
-# ==============================
-def leer_qr_camara_opencv(timeout=20):
-    if cv2 is None or decode is None:
-        return {"ok": False, "message": "Faltan librerías opencv-python o pyzbar."}
-
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap or not cap.isOpened():
-        return {"ok": False, "message": "No se pudo abrir la cámara. Revisa si está ocupada."}
-
-    start = datetime.now()
-    codigo = None
-
     try:
-        while (datetime.now() - start).total_seconds() < timeout:
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            codigos = decode(frame)
-            if codigos:
-                codigo = codigos[0].data.decode("utf-8", errors="ignore")
-                break
-
-            # Ventana local para pruebas
-            cv2.putText(frame, "Prueba camara QR - ESC para cancelar", (20, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-            cv2.imshow("TRAXION - Camara QR Prueba", frame)
-            if cv2.waitKey(1) & 0xFF == 27:
-                break
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
-
-    if not codigo:
-        return {"ok": False, "message": "No se leyó ningún QR."}
-
-    result = registrar_scan(codigo, origen="CAMARA_OPENCV")
-    result["camera_qr"] = codigo
-    return result
+        return pd.to_datetime(txt).to_pydatetime()
+    except Exception:
+        return None
 
 
-# ==============================
-# Routes
-# ==============================
+def dias_en_etapa(c):
+    base = parse_fecha(c["fecha_actualizacion"] or c["fecha_registro"])
+    if not base:
+        return 0
+    return max(0, (datetime.now() - base).days)
+
+
+def sla_estado(c):
+    etapa = c["etapa"] or "Registro"
+    limite = SLA_DIAS.get(etapa, 1)
+    dias = dias_en_etapa(c)
+    if etapa == "Activo":
+        return {"color": "verde", "texto": "Finalizado", "dias": dias, "limite": limite}
+    if dias > limite:
+        return {"color": "rojo", "texto": f"Vencido {dias-limite} día(s)", "dias": dias, "limite": limite}
+    if dias == limite:
+        return {"color": "amarillo", "texto": "Por vencer", "dias": dias, "limite": limite}
+    return {"color": "verde", "texto": "En tiempo", "dias": dias, "limite": limite}
+
+
+def enriquecer_candidatos(rows):
+    out = []
+    for r in rows:
+        d = dict(r)
+        s = sla_estado(r)
+        d.update({"sla_color": s["color"], "sla_texto": s["texto"], "dias_etapa": s["dias"], "sla_limite": s["limite"]})
+        out.append(d)
+    return out
+
+
+def seguimiento_resumen():
+    rows = query("SELECT * FROM candidatos WHERE etapa<>'Activo' ORDER BY fecha_actualizacion ASC")
+    enriched = enriquecer_candidatos(rows)
+    return {
+        "vencidos": sum(1 for x in enriched if x["sla_color"] == "rojo"),
+        "por_vencer": sum(1 for x in enriched if x["sla_color"] == "amarillo"),
+        "en_tiempo": sum(1 for x in enriched if x["sla_color"] == "verde"),
+        "total": len(enriched),
+    }
+
+
+def agenda_entrevistas(limit=20):
+    rows = query("""
+        SELECT * FROM candidatos
+        WHERE fecha_entrevista IS NOT NULL AND fecha_entrevista<>'' AND etapa IN ('Registro','Entrevista','Oferta Laboral')
+        ORDER BY fecha_entrevista ASC LIMIT ?
+    """, (limit,))
+    return rows
+
+
+
+def preguntas_por_puesto(puesto, tipo="Entrevista 1"):
+    p = (puesto or "").upper()
+    if "MONTAC" in p:
+        base = ENTREVISTA_BASE["MONTACARGUISTA"]
+    elif "PATIN" in p or "PATÍN" in p:
+        base = ENTREVISTA_BASE["PATINERO"]
+    else:
+        base = ENTREVISTA_BASE["GENERAL"]
+    if tipo == "Entrevista 2":
+        return base + ["Validación final de disponibilidad", "Confirmación de condiciones de oferta", "Comentarios del jefe operativo"]
+    return base
+
+
+def import_headcount_excel(path):
+    df = pd.read_excel(path).fillna("")
+    # Columnas flexibles: UDN/ALMACEN/CUENTA, PUESTO, HC/REQUERIDO/NOM/VAC
+    created = 0
+    execute("DELETE FROM headcount")
+    for _, row in df.iterrows():
+        udn = clean(row.get("UDN", row.get("ALMACEN", row.get("CUENTA", row.get("Cuenta", ""))))).upper()
+        puesto = clean(row.get("PUESTO", row.get("Puesto", ""))).upper()
+        if not puesto:
+            continue
+        requerido = clean(row.get("HC", row.get("REQUERIDO", row.get("Headcount", row.get("Requerido", 0)))))
+        activo = clean(row.get("NOM", row.get("ACTIVO", row.get("Activos", 0))))
+        try: requerido = int(float(requerido or 0))
+        except Exception: requerido = 0
+        try: activo = int(float(activo or 0))
+        except Exception: activo = 0
+        execute("INSERT INTO headcount(udn,puesto,requerido,activo) VALUES(?,?,?,?)", (udn, puesto, requerido, activo))
+        created += 1
+        if puesto:
+            try: execute("INSERT INTO catalogo_puestos(puesto) VALUES(?)", (puesto,))
+            except Exception: pass
+        if udn:
+            try: execute("INSERT INTO catalogo_udn(almacen,region,localidad) VALUES(?,?,?)", (udn,"POR DEFINIR","POR DEFINIR"))
+            except Exception: pass
+    return created
+
+
+def candidatos_por_modulo(etapa=None, macro=None, q=''):
+    sql = "SELECT * FROM candidatos WHERE 1=1"
+    params = []
+    if etapa:
+        if isinstance(etapa, (list, tuple)):
+            sql += " AND etapa IN (%s)" % ','.join(['?']*len(etapa))
+            params.extend(etapa)
+        else:
+            sql += " AND etapa=?"
+            params.append(etapa)
+    if macro:
+        sql += " AND estatus_macro=?"
+        params.append(macro)
+    if q:
+        like=f"%{q.upper()}%"
+        sql += " AND (UPPER(nombre) LIKE ? OR UPPER(puesto) LIKE ? OR UPPER(udn) LIKE ? OR UPPER(reclutador) LIKE ?)"
+        params += [like, like, like, like]
+    sql += " ORDER BY id DESC"
+    return query(sql, tuple(params))
+
 @app.route("/")
-def index():
-    return render_template("index.html", stats=get_stats())
+def inicio(): return redirect(url_for("dashboard"))
 
+@app.route("/dashboard")
+def dashboard():
+    kpis = get_kpis(); cobertura = cobertura_por_puesto(14); pipeline = etapa_counts()
+    recientes = query("SELECT * FROM candidatos ORDER BY id DESC LIMIT 10")
+    udns = query("SELECT udn, COUNT(*) total FROM candidatos WHERE udn<>'' GROUP BY udn ORDER BY total DESC LIMIT 12")
+    seguimiento = seguimiento_resumen()
+    agenda = agenda_entrevistas(8)
+    return render_template("dashboard.html", kpis=kpis, cobertura=cobertura, pipeline=pipeline, recientes=recientes, etapas=ETAPAS, udns=udns, seguimiento=seguimiento, agenda=agenda)
 
+@app.route("/candidatos")
+def candidatos():
+    q = request.args.get("q", "").strip(); etapa = request.args.get("etapa", "").strip(); puesto = request.args.get("puesto", "").strip(); udn = request.args.get("udn", "").strip()
+    sql = "SELECT * FROM candidatos WHERE 1=1"; params=[]
+    if q:
+        sql += " AND (nombre LIKE ? OR puesto LIKE ? OR udn LIKE ? OR reclutador LIKE ?)"; like=f"%{q}%"; params += [like,like,like,like]
+    if etapa: sql += " AND etapa=?"; params.append(etapa)
+    if puesto: sql += " AND puesto=?"; params.append(puesto)
+    if udn: sql += " AND udn=?"; params.append(udn)
+    sql += " ORDER BY id DESC LIMIT 700"
+    rows = query(sql, params)
+    return render_template("candidatos.html", rows=rows, q=q, etapas=ETAPAS, etapa_sel=etapa)
 
-@app.route("/api/test_parser", methods=["POST"])
-def api_test_parser():
-    data = request.get_json(force=True)
-    raw = data.get("raw", "")
-    empleado = limpiar_qr(raw)
-    if empleado and not empleado.upper().startswith("VISITA:"):
-        empleado = normalizar_empleado(empleado)
-    conn = get_conn()
-    emp = conn.execute("SELECT empleado,nombre_completo,puesto,area,turno,activo FROM empleados WHERE empleado=?", (empleado,)).fetchone()
-    conn.close()
-    return jsonify({
-        "raw": raw,
-        "empleado_detectado": empleado,
-        "encontrado": emp is not None,
-        "empleado": dict(emp) if emp else None
-    })
+@app.route("/candidatos/nuevo", methods=["GET", "POST"])
+def candidato_nuevo():
+    puestos = query("SELECT puesto FROM catalogo_puestos WHERE activo=1 ORDER BY puesto")
+    udns = query("SELECT almacen FROM catalogo_udn WHERE activo=1 ORDER BY almacen")
+    reclutadores = query("SELECT reclutador FROM catalogo_reclutadores WHERE activo=1 ORDER BY reclutador")
+    if request.method == "POST":
+        nombre = request.form.get("nombre", "").strip().upper(); puesto = request.form.get("puesto", "").strip().upper()
+        if not nombre or not puesto:
+            flash("Nombre y puesto son obligatorios.", "error"); return redirect(url_for("candidato_nuevo"))
+        cid = execute("""INSERT INTO candidatos(folio,nombre,telefono,email,region,localidad,udn,puesto,reclutador,fecha_entrevista,etapa,estatus_macro,fecha_registro,fecha_actualizacion,comentarios)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (next_folio(), nombre, request.form.get("telefono",""), request.form.get("email",""), request.form.get("region","").upper(), request.form.get("localidad","").upper(), request.form.get("udn","").upper(), puesto, request.form.get("reclutador","").upper(), request.form.get("fecha_entrevista",""), "Registro", "Reclutamiento", now_str(), now_str(), "Registro manual"))
+        ensure_docs(cid); log(cid, "Registro", "Alta manual", "RH")
+        flash("Candidato registrado correctamente.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=cid))
+    return render_template("candidato_form.html", puestos=puestos, udns=udns, reclutadores=reclutadores)
 
-@app.route("/api/scan", methods=["POST"])
-def api_scan():
-    data = request.get_json(force=True)
-    scan = data.get("scan", "")
-    return jsonify(registrar_scan(scan, origen="SCANNER_WEB"))
+@app.route("/candidatos/importar", methods=["POST"])
+def importar_candidatos():
+    f = request.files.get("archivo")
+    if not f or not f.filename:
+        flash("Selecciona un archivo Excel.", "error"); return redirect(url_for("candidatos"))
+    dest = UPLOAD_DIR / secure_filename(f.filename); f.save(dest)
+    try:
+        created, updated = import_rys_excel(dest)
+        flash(f"Importación finalizada. Nuevos: {created} | Actualizados: {updated}", "success")
+    except Exception as e:
+        flash(f"Error al importar: {e}", "error")
+    return redirect(url_for("dashboard"))
 
+@app.route("/candidatos/<int:candidato_id>", methods=["GET", "POST"])
+def candidato_detalle(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: flash("Candidato no encontrado.", "error"); return redirect(url_for("candidatos"))
+    if request.method == "POST":
+        etapa = request.form.get("etapa", cand["etapa"]); macro = ESTATUS_MACRO.get(etapa, cand["estatus_macro"])
+        execute("UPDATE candidatos SET etapa=?, estatus_macro=?, fecha_actualizacion=? WHERE id=?", (etapa, macro, now_str(), candidato_id))
+        log(candidato_id, "Cambio etapa", f"Nueva etapa: {etapa}", "RH"); flash("Etapa actualizada.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    docs = query("SELECT * FROM documentacion WHERE candidato_id=? ORDER BY id", (candidato_id,))
+    ruta = query("SELECT * FROM hoja_ruta WHERE candidato_id=?", (candidato_id,), one=True)
+    evals = query("SELECT * FROM evaluaciones WHERE candidato_id=?", (candidato_id,), one=True)
+    oferta = query("SELECT * FROM oferta_laboral WHERE candidato_id=?", (candidato_id,), one=True)
+    actividad = query("SELECT * FROM actividad WHERE candidato_id=? ORDER BY id DESC LIMIT 10", (candidato_id,))
+    return render_template("candidato_detalle.html", c=cand, etapas=ETAPAS, docs=docs, ruta=ruta, evals=evals, oferta=oferta, actividad=actividad)
 
-@app.route("/api/camera_scan", methods=["POST"])
-def api_camera_scan():
-    return jsonify(leer_qr_camara_opencv())
+@app.route("/hoja-ruta/<int:candidato_id>", methods=["GET", "POST"])
+def hoja_ruta(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    if request.method == "POST":
+        vals = {k: request.form.get(k, "") for k in ["ruta_transporte", "parada", "handheld", "wms", "sap", "excel", "patin", "montacargas", "reingreso_traxion", "reingreso_cliente", "emergencia_nombre", "emergencia_parentesco", "emergencia_telefono"]}
+        vals["experiencia_json"] = request.form.get("experiencia_json", "")
+        execute("""INSERT INTO hoja_ruta(candidato_id,ruta_transporte,parada,experiencia_json,handheld,wms,sap,excel,patin,montacargas,reingreso_traxion,reingreso_cliente,emergencia_nombre,emergencia_parentesco,emergencia_telefono,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(candidato_id) DO UPDATE SET ruta_transporte=excluded.ruta_transporte, parada=excluded.parada, experiencia_json=excluded.experiencia_json,
+                   handheld=excluded.handheld, wms=excluded.wms, sap=excluded.sap, excel=excluded.excel, patin=excluded.patin, montacargas=excluded.montacargas,
+                   reingreso_traxion=excluded.reingreso_traxion, reingreso_cliente=excluded.reingreso_cliente, emergencia_nombre=excluded.emergencia_nombre,
+                   emergencia_parentesco=excluded.emergencia_parentesco, emergencia_telefono=excluded.emergencia_telefono, updated_at=excluded.updated_at""",
+                (candidato_id, vals["ruta_transporte"], vals["parada"], vals["experiencia_json"], vals["handheld"], vals["wms"], vals["sap"], vals["excel"], vals["patin"], vals["montacargas"], vals["reingreso_traxion"], vals["reingreso_cliente"], vals["emergencia_nombre"], vals["emergencia_parentesco"], vals["emergencia_telefono"], now_str()))
+        execute("UPDATE candidatos SET etapa='Entrevista', estatus_macro='Reclutamiento', fecha_actualizacion=? WHERE id=?", (now_str(), candidato_id))
+        log(candidato_id, "Hoja Ruta", "Hoja de ruta guardada", "RH"); flash("Hoja de ruta guardada.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    data = query("SELECT * FROM hoja_ruta WHERE candidato_id=?", (candidato_id,), one=True)
+    return render_template("hoja_ruta.html", c=cand, data=data)
 
+@app.route("/oferta/<int:candidato_id>", methods=["GET", "POST"])
+def oferta_laboral(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    if request.method == "POST":
+        checked = {x: ("Si" if request.form.get(x) else "No") for x in CHECK_OFERTA}
+        execute("""INSERT INTO oferta_laboral(candidato_id,sueldo,prestaciones,bonos,horario,lugar_trabajo,fecha_primer_pago,checklist_json,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(candidato_id) DO UPDATE SET sueldo=excluded.sueldo,prestaciones=excluded.prestaciones,bonos=excluded.bonos,horario=excluded.horario,lugar_trabajo=excluded.lugar_trabajo,fecha_primer_pago=excluded.fecha_primer_pago,checklist_json=excluded.checklist_json,updated_at=excluded.updated_at""",
+                (candidato_id, request.form.get("sueldo",""), request.form.get("prestaciones",""), request.form.get("bonos",""), request.form.get("horario",""), request.form.get("lugar_trabajo",""), request.form.get("fecha_primer_pago",""), json.dumps(checked, ensure_ascii=False), now_str()))
+        execute("UPDATE candidatos SET etapa='Oferta Laboral', estatus_macro='Reclutamiento', fecha_actualizacion=? WHERE id=?", (now_str(), candidato_id))
+        log(candidato_id, "Oferta", "Oferta laboral capturada", "RH"); flash("Oferta laboral guardada.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    data = query("SELECT * FROM oferta_laboral WHERE candidato_id=?", (candidato_id,), one=True)
+    checks = json.loads(data["checklist_json"]) if data and data["checklist_json"] else {}
+    return render_template("oferta.html", c=cand, data=data, checks=checks, checklist=CHECK_OFERTA)
 
-@app.route("/api/stats")
-def api_stats():
-    return jsonify(get_stats())
+@app.route("/evaluacion/<int:candidato_id>", methods=["GET", "POST"])
+def evaluacion(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    if request.method == "POST":
+        med = request.form.get("medico_resultado", "Pendiente")
+        tec = request.form.get("tecnico_resultado", "Pendiente")
+        if med == "No Apto" and not request.form.get("medico_motivo", "").strip():
+            flash("Cuando el resultado médico es No Apto, el motivo es obligatorio.", "error"); return redirect(url_for("evaluacion", candidato_id=candidato_id))
+        if tec == "No Apto" and not request.form.get("tecnico_motivo", "").strip():
+            flash("Cuando la evaluación técnica es No Apto, el motivo es obligatorio.", "error"); return redirect(url_for("evaluacion", candidato_id=candidato_id))
+        execute("""INSERT INTO evaluaciones(candidato_id,medico_resultado,medico_motivo,tecnico_resultado,tecnico_tipo,tecnico_motivo,rfc_actualizado,costo_rfc,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(candidato_id) DO UPDATE SET medico_resultado=excluded.medico_resultado,medico_motivo=excluded.medico_motivo,tecnico_resultado=excluded.tecnico_resultado,tecnico_tipo=excluded.tecnico_tipo,tecnico_motivo=excluded.tecnico_motivo,rfc_actualizado=excluded.rfc_actualizado,costo_rfc=excluded.costo_rfc,updated_at=excluded.updated_at""",
+                (candidato_id, med, request.form.get("medico_motivo",""), tec, request.form.get("tecnico_tipo",""), request.form.get("tecnico_motivo",""), request.form.get("rfc_actualizado","No"), float(request.form.get("costo_rfc") or 0), now_str()))
+        new_stage = "Servicio Medico" if med != "Pendiente" and tec == "Pendiente" else "Evaluacion Tecnica"
+        execute("UPDATE candidatos SET etapa=?, estatus_macro='Reclutamiento', fecha_actualizacion=? WHERE id=?", (new_stage, now_str(), candidato_id))
+        log(candidato_id, "Evaluacion", "Evaluación médico/técnica actualizada", "RH"); flash("Evaluación guardada.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    data = query("SELECT * FROM evaluaciones WHERE candidato_id=?", (candidato_id,), one=True)
+    return render_template("evaluacion.html", c=cand, data=data, resultados=RESULTADOS)
 
+@app.route("/documentacion/<int:candidato_id>", methods=["GET", "POST"])
+def documentacion(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    ensure_docs(candidato_id)
+    if request.method == "POST":
+        for d in query("SELECT * FROM documentacion WHERE candidato_id=?", (candidato_id,)):
+            estado = request.form.get(f"estado_{d['id']}", d["estado"])
+            execute("UPDATE documentacion SET estado=?, updated_at=? WHERE id=?", (estado, now_str(), d["id"]))
+        execute("UPDATE candidatos SET etapa='Documentacion', estatus_macro='Contratacion', fecha_actualizacion=? WHERE id=?", (now_str(), candidato_id))
+        log(candidato_id, "Documentacion", "Checklist documental actualizado", "RH"); flash("Documentación actualizada.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    docs = query("SELECT * FROM documentacion WHERE candidato_id=? ORDER BY id", (candidato_id,))
+    return render_template("documentacion.html", c=cand, docs=docs)
 
-@app.route("/api/recent")
-def api_recent():
-    conn = get_conn()
-    fecha = date.today().strftime("%Y-%m-%d")
-
-    rows = conn.execute("""
-        SELECT
-            hora,
-            empleado,
-            nombre_completo,
-            tipo_evento,
-            turno_detectado,
-            estatus,
-            mensaje,
-            origen,
-            created_at
-        FROM registros
-        WHERE fecha=?
-
-        UNION ALL
-
-        SELECT
-            hora,
-            qr_id AS empleado,
-            nombre || ' | ' || COALESCE(tipo_visita,'VISITA') || ' | Empresa visita: ' || COALESCE(destino_empresa,'TRAXION') AS nombre_completo,
-            tipo_evento,
-            'VISITANTE' AS turno_detectado,
-            'OK' AS estatus,
-            mensaje,
-            'QR_VISITANTE' AS origen,
-            created_at
-        FROM visitas_registros
-        WHERE fecha=?
-
-        ORDER BY created_at DESC
-        LIMIT 50
-    """, (fecha, fecha)).fetchall()
-
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-
-@app.route("/api/visitas")
-def api_visitas():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT
-            fecha,
-            hora,
-            qr_id,
-            nombre,
-            empresa,
-            destino_empresa,
-            tipo_visita,
-            persona_visita,
-            tipo_evento,
-            mensaje,
-            created_at
-        FROM visitas_registros
-        WHERE fecha=?
-        ORDER BY created_at DESC
-    """, (fecha,)).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-
-@app.route("/visitas")
-def visitas():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT
-            fecha,
-            hora,
-            qr_id,
-            nombre,
-            empresa,
-            destino_empresa,
-            tipo_visita,
-            persona_visita,
-            tipo_evento,
-            mensaje
-        FROM visitas_registros
-        WHERE fecha=?
-        ORDER BY hora DESC
-    """, (fecha,)).fetchall()
-    conn.close()
-    return render_template("visitas.html", fecha=fecha, visitas=[dict(r) for r in rows])
-
-
-@app.route("/exportar_visitas")
-def exportar_visitas():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT fecha,hora,qr_id,nombre,empresa,destino_empresa,tipo_visita,persona_visita,tipo_evento,mensaje,created_at
-        FROM visitas_registros
-        WHERE fecha=?
-        ORDER BY hora ASC
-    """, (fecha,)).fetchall()
-    conn.close()
-
-    df = pd.DataFrame([dict(r) for r in rows])
-    out = REPORT_DIR / f"Visitas_Proveedores_{fecha.replace('-','')}.xlsx"
-    df.to_excel(out, index=False)
+@app.route("/hoja-ruta/<int:candidato_id>/pdf")
+def hoja_ruta_pdf(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    ruta = query("SELECT * FROM hoja_ruta WHERE candidato_id=?", (candidato_id,), one=True)
+    oferta = query("SELECT * FROM oferta_laboral WHERE candidato_id=?", (candidato_id,), one=True)
+    evals = query("SELECT * FROM evaluaciones WHERE candidato_id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    out = REPORT_DIR / f"Hoja_Ruta_{cand['folio']}.pdf"
+    c = canvas.Canvas(str(out), pagesize=letter)
+    w,h=letter
+    c.setFont("Helvetica-Bold", 18); c.drawString(0.75*inch, h-0.75*inch, "HOJA DE RUTA - CAPITAL HUMANO")
+    c.setFillColorRGB(0.82,0.87,0); c.rect(0.75*inch,h-1.1*inch,7*inch,0.15*inch,fill=1,stroke=0); c.setFillColorRGB(0,0,0)
+    y=h-1.45*inch; c.setFont("Helvetica-Bold", 11); c.drawString(0.75*inch,y,f"Folio: {cand['folio']}"); c.drawString(3.2*inch,y,f"Nombre: {cand['nombre'][:45]}")
+    y-=0.3*inch; c.setFont("Helvetica",10); fields=[("Puesto",cand['puesto']),("UDN",cand['udn']),("Teléfono",cand['telefono']),("Reclutador",cand['reclutador']),("Etapa",cand['etapa'])]
+    for lab,val in fields:
+        c.drawString(0.75*inch,y,f"{lab}: {val or ''}"); y-=0.22*inch
+    y-=0.12*inch; c.setFont("Helvetica-Bold",12); c.drawString(0.75*inch,y,"Hoja de Ruta"); y-=0.28*inch; c.setFont("Helvetica",10)
+    if ruta:
+        for lab,key in [("Ruta transporte","ruta_transporte"),("Parada","parada"),("Handheld","handheld"),("WMS","wms"),("SAP","sap"),("Excel","excel"),("Patín","patin"),("Montacargas","montacargas")]:
+            c.drawString(0.75*inch,y,f"{lab}: {ruta[key] or ''}"); y-=0.2*inch
+    else:
+        c.drawString(0.75*inch,y,"Sin hoja de ruta capturada."); y-=0.25*inch
+    y-=0.1*inch; c.setFont("Helvetica-Bold",12); c.drawString(0.75*inch,y,"Oferta / Evaluaciones"); y-=0.25*inch; c.setFont("Helvetica",10)
+    c.drawString(0.75*inch,y,f"Oferta: {'Capturada' if oferta else 'Pendiente'}"); y-=0.2*inch
+    if evals:
+        c.drawString(0.75*inch,y,f"Médico: {evals['medico_resultado'] or ''}    Técnico: {evals['tecnico_resultado'] or ''}    RFC actualizado: {evals['rfc_actualizado'] or 'No'}")
+    else: c.drawString(0.75*inch,y,"Evaluaciones pendientes.")
+    c.showPage(); c.save()
     return send_file(out, as_attachment=True)
 
 
-
-# =====================================================
-# SOLO PRUEBAS / DESARROLLO
-# DESHABILITAR EN PRODUCCION
-# Esta ruta elimina los registros de asistencia y visitas.
-# En produccion comentar desde @app.route hasta el return.
-# =====================================================
-@app.route("/api/admin/limpiar_registros", methods=["POST"])
-def api_limpiar_registros():
-    conn = get_conn()
-
-    conn.execute("DELETE FROM registros")
-    conn.execute("DELETE FROM visitas_registros")
-
-    try:
-        conn.execute("DELETE FROM sqlite_sequence WHERE name='registros'")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name='visitas_registros'")
-    except Exception:
-        pass
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        "ok": True,
-        "message": "Registros eliminados correctamente"
-    })
-
-
-@app.route("/parser-test")
-def parser_test():
-    return render_template("parser_test.html")
-
-@app.route("/visitantes", methods=["GET", "POST"])
-def visitantes():
+@app.route("/entrevista/<int:candidato_id>", methods=["GET", "POST"])
+def entrevista(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    tipo = request.args.get("tipo", request.form.get("tipo", "Entrevista 1"))
+    preguntas = preguntas_por_puesto(cand["puesto"], tipo)
+    data = query("SELECT * FROM entrevistas WHERE candidato_id=? AND tipo=? ORDER BY id DESC LIMIT 1", (candidato_id, tipo), one=True)
+    respuestas = json.loads(data["respuestas_json"]) if data and data["respuestas_json"] else {}
     if request.method == "POST":
-        nombre = request.form.get("nombre", "").strip()
-        empresa = request.form.get("empresa", "").strip()
-        destino_empresa = request.form.get("destino_empresa", "TRAXION").strip().upper()
-        tipo_visita = request.form.get("tipo_visita", "VISITA").strip().upper()
-        persona_visita = request.form.get("persona_visita", "").strip()
-        motivo = request.form.get("motivo", "").strip()
+        respuestas = {f"p{i}": request.form.get(f"p{i}", "") for i in range(len(preguntas))}
+        resultado = request.form.get("resultado", "Pendiente")
+        evaluador = request.form.get("evaluador", "")
+        comentarios = request.form.get("comentarios", "")
+        if data:
+            execute("""UPDATE entrevistas SET preguntas_json=?, respuestas_json=?, resultado=?, evaluador=?, comentarios=?, updated_at=? WHERE id=?""",
+                    (json.dumps(preguntas, ensure_ascii=False), json.dumps(respuestas, ensure_ascii=False), resultado, evaluador, comentarios, now_str(), data["id"]))
+        else:
+            execute("""INSERT INTO entrevistas(candidato_id,tipo,preguntas_json,respuestas_json,resultado,evaluador,comentarios,updated_at) VALUES(?,?,?,?,?,?,?,?)""",
+                    (candidato_id, tipo, json.dumps(preguntas, ensure_ascii=False), json.dumps(respuestas, ensure_ascii=False), resultado, evaluador, comentarios, now_str()))
+        execute("UPDATE candidatos SET etapa='Entrevista', estatus_macro='Reclutamiento', fecha_actualizacion=? WHERE id=?", (now_str(), candidato_id))
+        log(candidato_id, "Entrevista", f"{tipo} guardada con resultado {resultado}", evaluador or "RH")
+        flash("Entrevista guardada correctamente.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    return render_template("entrevista.html", c=cand, tipo=tipo, preguntas=preguntas, respuestas=respuestas, data=data, resultados=RESULTADOS)
 
-        if destino_empresa not in ["TRAXION", "HENKEL"]:
-            destino_empresa = "TRAXION"
-
-        if tipo_visita not in ["VISITA", "PROVEEDOR", "CONTRATISTA", "CLIENTE", "AUDITORIA", "OTRO"]:
-            tipo_visita = "VISITA"
-
-        if nombre:
-            qr_id = "VISITA:" + uuid.uuid4().hex[:12].upper()
-            conn = get_conn()
-            conn.execute("""
-                INSERT INTO visitantes(qr_id,nombre,empresa,destino_empresa,tipo_visita,persona_visita,motivo)
-                VALUES(?,?,?,?,?,?,?)
-            """, (qr_id, nombre, empresa, destino_empresa, tipo_visita, persona_visita, motivo))
-            conn.commit()
-            conn.close()
-
-            qr_img = qrcode.make(qr_id)
-            qr_path = QR_DIR / f"{qr_id.replace(':','_')}.png"
-            qr_img.save(qr_path)
-
-            return render_template(
-                "visitantes.html",
-                generado=True,
-                qr_id=qr_id,
-                qr_file=qr_path.name,
-                nombre=nombre,
-                empresa=empresa,
-                destino_empresa=destino_empresa,
-                tipo_visita=tipo_visita,
-                persona_visita=persona_visita,
-                motivo=motivo
-            )
-
-    return render_template("visitantes.html", generado=False)
+@app.route("/induccion/<int:candidato_id>", methods=["GET", "POST"])
+def induccion(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("candidatos"))
+    data = query("SELECT * FROM induccion WHERE candidato_id=?", (candidato_id,), one=True)
+    checks = json.loads(data["checklist_json"]) if data and data["checklist_json"] else {}
+    if request.method == "POST":
+        checks = {x: ("Si" if request.form.get(x) else "No") for x in INDUCCION_CHECKLIST}
+        resultado = request.form.get("resultado", "Pendiente")
+        execute("""INSERT INTO induccion(candidato_id,fecha_induccion,checklist_json,responsable,observaciones,resultado,updated_at)
+                   VALUES(?,?,?,?,?,?,?) ON CONFLICT(candidato_id) DO UPDATE SET fecha_induccion=excluded.fecha_induccion,checklist_json=excluded.checklist_json,responsable=excluded.responsable,observaciones=excluded.observaciones,resultado=excluded.resultado,updated_at=excluded.updated_at""",
+                (candidato_id, request.form.get("fecha_induccion",""), json.dumps(checks, ensure_ascii=False), request.form.get("responsable",""), request.form.get("observaciones",""), resultado, now_str()))
+        etapa = "Activo" if resultado == "Completada" else "Induccion"
+        macro = ESTATUS_MACRO.get(etapa, "Contratacion")
+        execute("UPDATE candidatos SET etapa=?, estatus_macro=?, fecha_actualizacion=? WHERE id=?", (etapa, macro, now_str(), candidato_id))
+        log(candidato_id, "Induccion", f"Inducción: {resultado}", request.form.get("responsable", "RH"))
+        flash("Inducción actualizada correctamente.", "success")
+        return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
+    return render_template("induccion.html", c=cand, data=data, checklist=INDUCCION_CHECKLIST, checks=checks)
 
 
-@app.route("/qr/<filename>")
-def qr_file(filename):
-    return send_file(QR_DIR / filename, mimetype="image/png")
+@app.route("/entrevistas")
+def entrevistas_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Registro", "Entrevista", "Oferta Laboral"], q=q)
+    return render_template("modulo_lista.html", active="entrevista", page_title="Entrevistas", titulo="Entrevistas", descripcion="Candidatos en etapa de registro, entrevista u oferta. Desde aquí puedes capturar Entrevista 1 o Entrevista 2.", rows=rows, q=q, action1="Entrevista 1", action2="Entrevista 2", endpoint1="entrevista", endpoint2="entrevista")
 
+@app.route("/hoja-ruta")
+def hoja_ruta_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Registro", "Entrevista"], q=q)
+    return render_template("modulo_lista.html", active="hoja_ruta", page_title="Hoja de Ruta", titulo="Hoja de Ruta Digital", descripcion="Candidatos pendientes o en entrevista para completar los datos de ruta, transporte, herramientas y experiencia.", rows=rows, q=q, action1="Capturar ruta", action2=None, endpoint1="hoja_ruta", endpoint2=None)
 
+@app.route("/oferta-laboral")
+def oferta_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Entrevista", "Oferta Laboral"], q=q)
+    return render_template("modulo_lista.html", active="oferta", page_title="Oferta Laboral", titulo="Oferta Laboral", descripcion="Checklist de explicación de sueldo, prestaciones, bonos, horario, lugar de trabajo y fecha de primer pago.", rows=rows, q=q, action1="Capturar oferta", action2=None, endpoint1="oferta_laboral", endpoint2=None)
+
+@app.route("/servicio-medico")
+def servicio_medico_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Oferta Laboral", "Servicio Medico", "Evaluacion Tecnica"], q=q)
+    return render_template("modulo_lista.html", active="evaluacion", page_title="Servicio Médico", titulo="Servicio Médico", descripcion="Captura de resultado médico: Apto, Apto condicionado o No apto con motivo obligatorio.", rows=rows, q=q, action1="Capturar médico", action2=None, endpoint1="evaluacion", endpoint2=None)
+
+@app.route("/evaluacion-tecnica")
+def evaluacion_tecnica_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Servicio Medico", "Evaluacion Tecnica"], q=q)
+    return render_template("modulo_lista.html", active="evaluacion", page_title="Evaluación Técnica", titulo="Evaluación Técnica", descripcion="Captura prueba técnica por perfil: patín, montacargas, aritmética, picking, SAP o WMS.", rows=rows, q=q, action1="Capturar evaluación", action2=None, endpoint1="evaluacion", endpoint2=None)
+
+@app.route("/documentacion-panel")
+def documentacion_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Evaluacion Tecnica", "Documentacion", "Induccion"], q=q)
+    return render_template("modulo_lista.html", active="documentacion", page_title="Documentación", titulo="Documentación", descripcion="Checklist documental del candidato: INE, CURP, RFC, NSS, cuenta bancaria, comprobante, acta y solicitud/CV.", rows=rows, q=q, action1="Checklist docs", action2=None, endpoint1="documentacion", endpoint2=None)
+
+@app.route("/induccion-panel")
+def induccion_panel():
+    q = request.args.get("q", "")
+    rows = candidatos_por_modulo(etapa=["Documentacion", "Induccion", "Entrega Operaciones"], q=q)
+    return render_template("modulo_lista.html", active="induccion", page_title="Inducción", titulo="Inducción", descripcion="Control de inducción, seguridad, EPP, recorrido operativo, alta biométrica, gafete y entrega a jefe directo.", rows=rows, q=q, action1="Capturar inducción", action2=None, endpoint1="induccion", endpoint2=None)
 
 @app.route("/reportes")
-def reportes():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT fecha,hora,empleado,nombre_completo,tipo_evento,turno_detectado,estatus,mensaje,origen
-        FROM registros
-        WHERE fecha=?
-        ORDER BY hora ASC
-    """, (fecha,)).fetchall()
-    conn.close()
-    return render_template("reportes.html", fecha=fecha, registros=[dict(r) for r in rows])
+def reportes_panel():
+    rows = query("SELECT etapa, estatus_macro, COUNT(*) total FROM candidatos GROUP BY etapa, estatus_macro ORDER BY etapa")
+    rfc = query("SELECT COUNT(*) total, COALESCE(SUM(costo_rfc),0) costo FROM evaluaciones WHERE rfc_actualizado='Si'", one=True)
+    return render_template("reportes.html", rows=rows, kpis=get_kpis(), rfc=rfc)
 
 
-@app.route("/api/reportes")
-def api_reportes():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT fecha,hora,empleado,nombre_completo,tipo_evento,turno_detectado,estatus,mensaje,origen
-        FROM registros
-        WHERE fecha=?
-        ORDER BY hora ASC
-    """, (fecha,)).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+@app.route("/seguimiento")
+def seguimiento():
+    q = request.args.get("q", "").strip()
+    etapa = request.args.get("etapa", "").strip()
+    rows = candidatos_por_modulo(etapa=etapa if etapa else None, q=q)
+    rows = [r for r in rows if r["etapa"] != "Activo"]
+    enriched = enriquecer_candidatos(rows)
+    color = request.args.get("sla", "").strip()
+    if color:
+        enriched = [r for r in enriched if r["sla_color"] == color]
+    resumen = seguimiento_resumen()
+    return render_template("seguimiento.html", active="seguimiento", rows=enriched, q=q, etapas=ETAPAS, etapa_sel=etapa, sla_sel=color, resumen=resumen)
 
-@app.route("/empleados")
-def empleados():
-    conn = get_conn()
-    rows = conn.execute("SELECT empleado,nombre_completo,puesto,area,turno,tipo_personal,activo FROM empleados ORDER BY nombre_completo LIMIT 1000").fetchall()
-    conn.close()
-    return render_template("empleados.html", empleados=[dict(r) for r in rows])
+@app.route("/agenda")
+def agenda():
+    rows = agenda_entrevistas(200)
+    return render_template("agenda.html", active="agenda", rows=rows)
 
+@app.route("/candidatos/<int:candidato_id>/nota", methods=["POST"])
+def agregar_nota(candidato_id):
+    nota = request.form.get("nota", "").strip()
+    usuario = request.form.get("usuario", "RH").strip() or "RH"
+    if nota:
+        log(candidato_id, "Nota", nota, usuario)
+        flash("Nota agregada a la bitácora.", "success")
+    else:
+        flash("Captura una nota antes de guardar.", "error")
+    return redirect(url_for("candidato_detalle", candidato_id=candidato_id))
 
-@app.route("/importar")
-def importar():
+@app.route("/plantillas/candidatos")
+def plantilla_candidatos():
+    out = REPORT_DIR / "Plantilla_Candidatos_RyS.xlsx"
+    cols = ["Nombre Completo", "TELEFONO", "Email", "REGION", "LOCALIDAD", "ALMACEN", "PUESTO", "RECLUTADOR", "FECHA DE ENTREVISTA", "ESTATUS", "MOTIVO DE RECHAZO"]
+    pd.DataFrame(columns=cols).to_excel(out, index=False)
+    return send_file(out, as_attachment=True)
+
+@app.route("/plantillas/headcount")
+def plantilla_headcount():
+    out = REPORT_DIR / "Plantilla_Headcount.xlsx"
+    pd.DataFrame(columns=["UDN", "PUESTO", "HC", "NOM"]).to_excel(out, index=False)
+    return send_file(out, as_attachment=True)
+
+@app.route("/headcount/importar", methods=["POST"])
+def importar_headcount():
+    f = request.files.get("archivo")
+    if not f or not f.filename:
+        flash("Selecciona un Excel de headcount.", "error"); return redirect(url_for("headcount"))
+    dest = UPLOAD_DIR / secure_filename(f.filename); f.save(dest)
     try:
-        total = importar_empleados_excel()
-        return jsonify({"ok": True, "message": f"Empleados importados/sincronizados: {total}"})
+        total = import_headcount_excel(dest)
+        flash(f"Headcount importado correctamente: {total} registros.", "success")
     except Exception as e:
-        return jsonify({"ok": False, "message": str(e)})
+        flash(f"Error al importar headcount: {e}", "error")
+    return redirect(url_for("headcount"))
 
+@app.route("/catalogos")
+def catalogos():
+    return render_template("catalogos.html", puestos=query("SELECT * FROM catalogo_puestos ORDER BY puesto"), udns=query("SELECT * FROM catalogo_udn ORDER BY almacen"), reclutadores=query("SELECT * FROM catalogo_reclutadores ORDER BY reclutador"))
 
+@app.route("/headcount")
+def headcount():
+    rows = query("SELECT * FROM headcount ORDER BY udn, puesto LIMIT 1000")
+    return render_template("headcount.html", cobertura=cobertura_por_puesto(30), kpis=get_kpis(), rows=rows)
+@app.route("/ia")
+def ia():
+    return render_template("ia.html", candidatos=query("SELECT id,folio,nombre,puesto,udn,etapa FROM candidatos ORDER BY id DESC LIMIT 200"), puestos=query("SELECT puesto FROM catalogo_puestos ORDER BY puesto"), preguntas=None)
 @app.route("/exportar")
 def exportar():
-    fecha = request.args.get("fecha") or date.today().strftime("%Y-%m-%d")
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT fecha,hora,empleado,nombre_completo,tipo_evento,turno_detectado,estatus,mensaje,origen,created_at
-        FROM registros WHERE fecha=? ORDER BY hora ASC
-    """, (fecha,)).fetchall()
-    conn.close()
+    rows = query("SELECT * FROM candidatos ORDER BY id DESC")
+    out = REPORT_DIR / f"Capital_Humano_Candidatos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    pd.DataFrame([dict(r) for r in rows]).to_excel(out, index=False)
+    return send_file(out, as_attachment=True)
+@app.route("/api/kpis")
+def api_kpis(): return jsonify(get_kpis())
 
-    df = pd.DataFrame([dict(r) for r in rows])
-    out = REPORT_DIR / f"Asistencia_Traxion_{fecha.replace('-','')}.xlsx"
-    df.to_excel(out, index=False)
+
+# ==============================
+# FASE 2.7 - 3.0 - Administración, IA y reportes ejecutivos
+# ==============================
+def candidato_full(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand:
+        return None
+    ruta = query("SELECT * FROM hoja_ruta WHERE candidato_id=?", (candidato_id,), one=True)
+    oferta = query("SELECT * FROM oferta_laboral WHERE candidato_id=?", (candidato_id,), one=True)
+    evals = query("SELECT * FROM evaluaciones WHERE candidato_id=?", (candidato_id,), one=True)
+    entrevistas = query("SELECT * FROM entrevistas WHERE candidato_id=? ORDER BY id", (candidato_id,))
+    docs = query("SELECT documento,estado FROM documentacion WHERE candidato_id=? ORDER BY id", (candidato_id,))
+    return {"cand": cand, "ruta": ruta, "oferta": oferta, "evals": evals, "entrevistas": entrevistas, "docs": docs}
+
+
+def generar_analisis_ia(candidato_id):
+    data = candidato_full(candidato_id)
+    if not data:
+        return None
+    c = data["cand"]
+    ruta = data["ruta"]
+    evals = data["evals"]
+    docs = data["docs"]
+    entrevistas = data["entrevistas"]
+    score = 50
+    fortalezas, riesgos, recomendaciones = [], [], []
+    puesto = (c["puesto"] or "").upper()
+    if ruta:
+        for campo, etiqueta in [("handheld", "Handheld"), ("wms", "WMS"), ("sap", "SAP"), ("excel", "Excel"), ("patin", "Patín"), ("montacargas", "Montacargas")]:
+            val = (ruta[campo] or "").upper() if campo in ruta.keys() else ""
+            if val in ["SI", "SÍ", "YES", "1"]:
+                score += 6
+                fortalezas.append(f"Experiencia declarada en {etiqueta}.")
+        if ruta["experiencia_json"]:
+            score += 8
+            fortalezas.append("Cuenta con antecedentes laborales capturados en hoja de ruta.")
+        if (ruta["ruta_transporte"] or ""):
+            score += 3
+        else:
+            riesgos.append("Falta validar ruta de transporte y distancia al sitio.")
+    else:
+        riesgos.append("No se ha capturado la Hoja de Ruta.")
+    if evals:
+        med = evals["medico_resultado"] or "Pendiente"
+        tec = evals["tecnico_resultado"] or "Pendiente"
+        if med == "Apto": score += 10; fortalezas.append("Resultado médico apto.")
+        if med == "Apto Condicionado": riesgos.append("Resultado médico apto condicionado; revisar observaciones.")
+        if med == "No Apto": score -= 30; riesgos.append("Resultado médico no apto.")
+        if tec == "Apto": score += 10; fortalezas.append("Evaluación técnica apta.")
+        if tec == "Apto Condicionado": riesgos.append("Evaluación técnica apta condicionada.")
+        if tec == "No Apto": score -= 25; riesgos.append("Evaluación técnica no apta.")
+    else:
+        riesgos.append("No se ha capturado evaluación médica/técnica.")
+    if entrevistas:
+        score += min(10, len(entrevistas)*5)
+        fortalezas.append(f"Tiene {len(entrevistas)} entrevista(s) registrada(s).")
+    else:
+        recomendaciones.append("Programar o capturar entrevista inicial.")
+    if docs:
+        ok = sum(1 for d in docs if d["estado"] == "Validado")
+        total = len(docs)
+        pct_docs = int(ok/total*100) if total else 0
+        if pct_docs >= 80:
+            score += 10
+            fortalezas.append("Documentación con avance alto.")
+        elif pct_docs < 40:
+            riesgos.append("Documentación con avance bajo.")
+    if "MONTAC" in puesto and not (ruta and (ruta["montacargas"] or "").upper() in ["SI", "SÍ"]):
+        riesgos.append("El puesto requiere validar experiencia en montacargas.")
+        recomendaciones.append("Aplicar prueba práctica de montacargas antes de avanzar.")
+    if "PATIN" in puesto and not (ruta and (ruta["patin"] or "").upper() in ["SI", "SÍ"]):
+        riesgos.append("El puesto requiere validar experiencia en patín.")
+        recomendaciones.append("Aplicar prueba práctica de patín y seguridad operativa.")
+    if not recomendaciones:
+        recomendaciones.append("Continuar con la siguiente etapa del flujo operativo.")
+    score = max(0, min(100, score))
+    if score >= 80:
+        nivel = "Alta compatibilidad"
+    elif score >= 60:
+        nivel = "Compatibilidad media"
+    else:
+        nivel = "Revisión requerida"
+    resumen = f"{c['nombre']} presenta {nivel.lower()} para el puesto {c['puesto']} en {c['udn'] or 'UDN por definir'}."
+    return {"score": score, "nivel": nivel, "resumen": resumen, "fortalezas": fortalezas[:6], "riesgos": riesgos[:6], "recomendaciones": recomendaciones[:6]}
+
+
+@app.route("/ia/candidato/<int:candidato_id>")
+def ia_candidato(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    analisis = generar_analisis_ia(candidato_id)
+    if not cand or not analisis:
+        flash("Candidato no encontrado.", "error")
+        return redirect(url_for("ia"))
+    return render_template("ia_resultado.html", c=cand, analisis=analisis)
+
+
+@app.route("/ia/preguntas", methods=["POST"])
+def ia_preguntas():
+    puesto = request.form.get("puesto", "GENERAL")
+    tipo = request.form.get("tipo", "Entrevista 1")
+    preguntas = preguntas_por_puesto(puesto, tipo)
+    return render_template("ia.html", preguntas=preguntas, puesto_sel=puesto, tipo_sel=tipo, candidatos=query("SELECT id,folio,nombre,puesto,udn,etapa FROM candidatos ORDER BY id DESC LIMIT 200"), puestos=query("SELECT puesto FROM catalogo_puestos ORDER BY puesto"))
+
+
+@app.route("/catalogos/agregar", methods=["POST"])
+def catalogos_agregar():
+    tipo = request.form.get("tipo")
+    valor = (request.form.get("valor") or "").strip().upper()
+    region = (request.form.get("region") or "").strip().upper()
+    localidad = (request.form.get("localidad") or "").strip().upper()
+    if not valor:
+        flash("Captura un valor para el catálogo.", "error")
+        return redirect(url_for("catalogos"))
+    try:
+        if tipo == "puesto":
+            execute("INSERT INTO catalogo_puestos(puesto) VALUES(?)", (valor,))
+        elif tipo == "udn":
+            execute("INSERT INTO catalogo_udn(almacen,region,localidad) VALUES(?,?,?)", (valor, region or "POR DEFINIR", localidad or "POR DEFINIR"))
+        elif tipo == "reclutador":
+            execute("INSERT INTO catalogo_reclutadores(reclutador,region) VALUES(?,?)", (valor, region))
+        flash("Catálogo actualizado correctamente.", "success")
+    except Exception as e:
+        flash(f"No se pudo agregar el registro. Puede que ya exista. Detalle: {e}", "error")
+    return redirect(url_for("catalogos"))
+
+
+@app.route("/headcount/agregar", methods=["POST"])
+def headcount_agregar():
+    udn = (request.form.get("udn") or "").strip().upper()
+    puesto = (request.form.get("puesto") or "").strip().upper()
+    try:
+        requerido = int(float(request.form.get("requerido") or 0))
+        activo = int(float(request.form.get("activo") or 0))
+    except Exception:
+        requerido, activo = 0, 0
+    if not puesto:
+        flash("Captura el puesto para agregar headcount.", "error")
+        return redirect(url_for("headcount"))
+    execute("INSERT INTO headcount(udn,puesto,requerido,activo) VALUES(?,?,?,?)", (udn, puesto, requerido, activo))
+    flash("Headcount agregado manualmente.", "success")
+    return redirect(url_for("headcount"))
+
+
+def export_df(rows, filename):
+    out = REPORT_DIR / filename
+    pd.DataFrame([dict(r) for r in rows]).to_excel(out, index=False)
     return send_file(out, as_attachment=True)
 
 
-def get_stats():
-    conn = get_conn()
-    fecha = date.today().strftime("%Y-%m-%d")
-    def q(sql):
-        return conn.execute(sql, (fecha,)).fetchone()[0]
-    stats = {
-        "entries": q("SELECT COUNT(*) FROM registros WHERE fecha=? AND tipo_evento='ENTRADA'"),
-        "exits": q("SELECT COUNT(*) FROM registros WHERE fecha=? AND tipo_evento='SALIDA'"),
-        "late": q("SELECT COUNT(*) FROM registros WHERE fecha=? AND estatus IN ('RETARDO','FUERA HORARIO')"),
-        "alerts": q("SELECT COUNT(*) FROM registros WHERE fecha=? AND estatus='ALERTA'"),
-    }
-    conn.close()
-    return stats
+@app.route("/reportes/pipeline")
+def reporte_pipeline():
+    rows = query("SELECT folio,nombre,telefono,email,region,localidad,udn,puesto,reclutador,etapa,estatus_macro,fecha_entrevista,fecha_registro,fecha_actualizacion,motivo_rechazo FROM candidatos ORDER BY id DESC")
+    return export_df(rows, f"Reporte_Pipeline_CH_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 
 
-init_db()
-try:
-    importar_empleados_excel()
-except Exception:
-    pass
+@app.route("/reportes/documentacion")
+def reporte_documentacion():
+    rows = query("""
+        SELECT c.folio,c.nombre,c.udn,c.puesto,c.etapa,d.documento,d.estado,d.updated_at
+        FROM candidatos c LEFT JOIN documentacion d ON d.candidato_id=c.id
+        ORDER BY c.nombre,d.documento
+    """)
+    return export_df(rows, f"Reporte_Documentacion_CH_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
+
+@app.route("/reportes/rfc")
+def reporte_rfc():
+    rows = query("""
+        SELECT c.folio,c.nombre,c.udn,c.puesto,e.rfc_actualizado,e.costo_rfc,e.medico_resultado,e.tecnico_resultado,e.updated_at
+        FROM candidatos c JOIN evaluaciones e ON e.candidato_id=c.id
+        WHERE e.rfc_actualizado='Si'
+        ORDER BY e.updated_at DESC
+    """)
+    return export_df(rows, f"Reporte_RFC_Actualizados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
+
+@app.route("/reportes/headcount")
+def reporte_headcount():
+    rows = query("SELECT * FROM headcount ORDER BY udn,puesto")
+    return export_df(rows, f"Reporte_Headcount_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
+
+
+# ==============================
+# FASE 2.7 a 3.0 - Expediente, DC3, firma, Access Kiosk y corporativo
+# ==============================
+def ensure_employee_id(candidato_id):
+    row = query("SELECT * FROM access_kiosk_integracion WHERE candidato_id=?", (candidato_id,), one=True)
+    if row and row["empleado_id"]:
+        return row["empleado_id"]
+    empleado_id = f"10{100000 + int(candidato_id):06d}"[-8:]
+    execute("""INSERT INTO access_kiosk_integracion(candidato_id,empleado_id,qr_generado,estatus,fecha)
+               VALUES(?,?,?,?,?) ON CONFLICT(candidato_id) DO UPDATE SET empleado_id=excluded.empleado_id, fecha=excluded.fecha""",
+            (candidato_id, empleado_id, "No", "Pendiente", now_str()))
+    return empleado_id
+
+@app.route("/expediente-digital")
+def expediente_digital_panel():
+    rows = query("SELECT * FROM candidatos WHERE etapa IN ('Activo','Entrega Operaciones','Induccion','Documentacion') ORDER BY id DESC LIMIT 500")
+    return render_template("expediente_digital.html", rows=rows, active="expediente", page_title="Expediente Digital")
+
+@app.route("/expediente-digital/<int:candidato_id>", methods=["GET","POST"])
+def expediente_digital(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("expediente_digital_panel"))
+    folder = UPLOAD_DIR / f"expediente_{candidato_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    if request.method == "POST":
+        categoria = request.form.get("categoria", "General")
+        documento = request.form.get("documento", "Documento")
+        obs = request.form.get("observaciones", "")
+        f = request.files.get("archivo")
+        archivo_path = ""
+        if f and f.filename:
+            safe = secure_filename(f.filename)
+            dest = folder / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe}"
+            f.save(dest)
+            archivo_path = str(dest)
+        execute("INSERT INTO expediente_digital(candidato_id,categoria,documento,archivo,observaciones,fecha) VALUES(?,?,?,?,?,?)", (candidato_id,categoria,documento,archivo_path,obs,now_str()))
+        log(candidato_id, "Expediente Digital", f"Documento agregado: {documento}", "RH")
+        flash("Documento agregado al expediente.", "success")
+        return redirect(url_for("expediente_digital", candidato_id=candidato_id))
+    docs = query("SELECT * FROM expediente_digital WHERE candidato_id=? ORDER BY id DESC", (candidato_id,))
+    return render_template("expediente_digital.html", c=cand, docs=docs, active="expediente", page_title="Expediente Digital")
+
+@app.route("/capacitacion-dc3")
+def capacitacion_dc3_panel():
+    rows = query("SELECT * FROM candidatos WHERE etapa IN ('Induccion','Entrega Operaciones','Activo') ORDER BY id DESC LIMIT 500")
+    cursos = query("SELECT cd.*, c.nombre, c.puesto, c.udn FROM capacitacion_dc3 cd JOIN candidatos c ON c.id=cd.candidato_id ORDER BY cd.id DESC LIMIT 50")
+    return render_template("capacitacion_dc3.html", rows=rows, cursos=cursos, active="capacitacion", page_title="Capacitación y DC3")
+
+@app.route("/capacitacion-dc3/<int:candidato_id>", methods=["GET","POST"])
+def capacitacion_dc3(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("capacitacion_dc3_panel"))
+    if request.method == "POST":
+        execute("INSERT INTO capacitacion_dc3(candidato_id,curso,fecha_curso,instructor,resultado,dc3_generado,observaciones,fecha) VALUES(?,?,?,?,?,?,?,?)",
+                (candidato_id, request.form.get("curso",""), request.form.get("fecha_curso",""), request.form.get("instructor",""), request.form.get("resultado","Pendiente"), request.form.get("dc3_generado","No"), request.form.get("observaciones",""), now_str()))
+        log(candidato_id, "Capacitación", f"Curso capturado: {request.form.get('curso','')}", "RH/SHE")
+        flash("Curso/DC3 capturado correctamente.", "success")
+        return redirect(url_for("capacitacion_dc3", candidato_id=candidato_id))
+    cursos = query("SELECT * FROM capacitacion_dc3 WHERE candidato_id=? ORDER BY id DESC", (candidato_id,))
+    return render_template("capacitacion_dc3.html", c=cand, cursos=cursos, active="capacitacion", page_title="Capacitación y DC3")
+
+@app.route("/firma-electronica")
+def firma_electronica_panel():
+    rows = query("SELECT * FROM candidatos WHERE etapa IN ('Documentacion','Induccion','Entrega Operaciones','Activo') ORDER BY id DESC LIMIT 500")
+    return render_template("firma_electronica.html", rows=rows, active="firma", page_title="Firma Electrónica")
+
+@app.route("/firma-electronica/<int:candidato_id>", methods=["GET","POST"])
+def firma_electronica(candidato_id):
+    cand = query("SELECT * FROM candidatos WHERE id=?", (candidato_id,), one=True)
+    if not cand: return redirect(url_for("firma_electronica_panel"))
+    folder = UPLOAD_DIR / f"firmas_{candidato_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    if request.method == "POST":
+        documento = request.form.get("documento", "Documento firmado")
+        firmante = request.form.get("firmante", cand["nombre"])
+        f = request.files.get("archivo_pdf")
+        archivo_pdf = ""
+        if f and f.filename:
+            dest = folder / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(f.filename)}"
+            f.save(dest); archivo_pdf = str(dest)
+        execute("INSERT INTO firmas_electronicas(candidato_id,documento,firmante,archivo_pdf,fecha) VALUES(?,?,?,?,?)", (candidato_id,documento,firmante,archivo_pdf,now_str()))
+        log(candidato_id, "Firma", f"Documento firmado/cargado: {documento}", "RH")
+        flash("Documento firmado/cargado correctamente.", "success")
+        return redirect(url_for("firma_electronica", candidato_id=candidato_id))
+    firmas = query("SELECT * FROM firmas_electronicas WHERE candidato_id=? ORDER BY id DESC", (candidato_id,))
+    return render_template("firma_electronica.html", c=cand, firmas=firmas, active="firma", page_title="Firma Electrónica")
+
+@app.route("/access-kiosk")
+def access_kiosk_panel():
+    rows = query("""
+        SELECT c.*, a.empleado_id, a.qr_generado, a.estatus AS kiosk_estatus
+        FROM candidatos c LEFT JOIN access_kiosk_integracion a ON a.candidato_id=c.id
+        WHERE c.etapa='Activo' OR c.estatus_macro='Activo'
+        ORDER BY c.id DESC
+    """)
+    return render_template("access_kiosk.html", rows=rows, active="access", page_title="Integración Access Kiosk")
+
+@app.route("/access-kiosk/generar/<int:candidato_id>")
+def access_kiosk_generar(candidato_id):
+    emp = ensure_employee_id(candidato_id)
+    execute("UPDATE access_kiosk_integracion SET qr_generado='Si', estatus='Listo para sincronizar', fecha=? WHERE candidato_id=?", (now_str(), candidato_id))
+    log(candidato_id, "Access Kiosk", f"Empleado/QR generado: {emp}", "Sistema")
+    flash(f"Empleado {emp} listo para Access Kiosk.", "success")
+    return redirect(url_for("access_kiosk_panel"))
+
+@app.route("/dashboard-corporativo")
+def dashboard_corporativo():
+    k = get_kpis()
+    cobertura = cobertura_por_puesto(12)
+    rfc = query("SELECT COUNT(*) c, COALESCE(SUM(costo_rfc),0) total FROM evaluaciones WHERE rfc_actualizado='Si'", one=True)
+    activos = query("SELECT COUNT(*) c FROM candidatos WHERE etapa='Activo' OR estatus_macro='Activo'", one=True)["c"]
+    reclutamiento = query("SELECT COUNT(*) c FROM candidatos WHERE estatus_macro='Reclutamiento'", one=True)["c"]
+    contratacion = query("SELECT COUNT(*) c FROM candidatos WHERE estatus_macro='Contratacion'", one=True)["c"]
+    return render_template("dashboard_corporativo.html", kpis=k, cobertura=cobertura, rfc=rfc, activos=activos, reclutamiento=reclutamiento, contratacion=contratacion, active="corp", page_title="Dashboard Ejecutivo Corporativo")
+
+@app.route("/ia-avanzada")
+def ia_avanzada():
+    rows = query("SELECT id, folio, nombre, puesto, udn, etapa FROM candidatos ORDER BY id DESC LIMIT 200")
+    return render_template("ia_avanzada.html", rows=rows, active="ia", page_title="IA Avanzada Capital Humano")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    print("="*70); print("PLATAFORMA INTEGRAL DE CAPITAL HUMANO TRAXION - FASE 2.7 - 3.0"); print("="*70)
+    init_db(); print("[3/4] Preparando servidor Flask..."); print("[4/4] Abre en tu navegador: http://127.0.0.1:5000")
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
