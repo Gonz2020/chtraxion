@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if c %}
+<div class="grid two">
+  <div class="card">
+    <h2>{{ c.nombre }}</h2><p class="muted">{{ c.folio }} · {{ c.puesto }} · {{ c.udn }}</p>
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      <label>Categoría<select name="categoria"><option>Datos Generales</option><option>Documentación</option><option>Contrato</option><option>Capacitación</option><option>DC3</option><option>Incidencias</option></select></label>
+      <label>Documento<input name="documento" placeholder="CURP, RFC, Contrato, DC3..."></label>
+      <label>Archivo<input type="file" name="archivo"></label>
+      <label>Observaciones<textarea name="observaciones"></textarea></label>
+      <button class="btn primary">Agregar al expediente</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Documentos del expediente</h3>
+    <table><thead><tr><th>Categoría</th><th>Documento</th><th>Fecha</th><th>Estatus</th></tr></thead><tbody>
+      {% for d in docs %}<tr><td>{{ d.categoria }}</td><td>{{ d.documento }}</td><td>{{ d.fecha[:16] }}</td><td><span class="badge ok">{{ d.estatus }}</span></td></tr>{% endfor %}
+      {% if not docs %}<tr><td colspan="4">Sin documentos cargados.</td></tr>{% endif %}
+    </tbody></table>
+  </div>
+</div>
+{% else %}
+<div class="card"><h2>Expediente Digital del Colaborador</h2><p class="muted">Selecciona un candidato para abrir su expediente tipo SharePoint.</p></div>
+<div class="card"><table><thead><tr><th>Folio</th><th>Nombre</th><th>Puesto</th><th>Etapa</th><th>Acción</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.folio}}</td><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small" href="{{ url_for('expediente_digital', candidato_id=r.id) }}">Abrir</a></td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% set active='agenda' %}
+{% set page_title='Agenda de entrevistas' %}
+{% block content %}
+<div class="module-hero card">
+  <div><span class="pill">Agenda</span><h2>Entrevistas programadas</h2><p>Consulta los candidatos con fecha de entrevista y accede rápidamente a su expediente o a Entrevista 1 / Entrevista 2.</p></div>
+  <a class="btn primary" href="{{ url_for('candidato_nuevo') }}">+ Nuevo candidato</a>
+</div>
+<div class="card">
+  <table><thead><tr><th>Fecha entrevista</th><th>Folio</th><th>Candidato</th><th>Puesto</th><th>UDN</th><th>Reclutador</th><th>Acciones</th></tr></thead><tbody>
+    {% for c in rows %}<tr><td>{{ c.fecha_entrevista }}</td><td>{{ c.folio }}</td><td><b style="font-weight:600">{{ c.nombre }}</b><br><small>{{ c.telefono or '' }}</small></td><td>{{ c.puesto }}</td><td>{{ c.udn }}</td><td>{{ c.reclutador }}</td><td style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Expediente</a><a class="btn primary" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 1') }}">Entrevista 1</a><a class="btn dark" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 2') }}">Entrevista 2</a></td></tr>{% endfor %}
+    {% if not rows %}<tr><td colspan="7">No hay entrevistas programadas.</td></tr>{% endif %}
+  </tbody></table>
+</div>
+{% endblock %}

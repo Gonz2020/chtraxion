@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="kpi-grid"><div class="kpi"><span>Reclutamiento</span><b>{{ reclutamiento }}</b></div><div class="kpi"><span>Contratación</span><b>{{ contratacion }}</b></div><div class="kpi"><span>Activos</span><b>{{ activos }}</b></div><div class="kpi"><span>RFC actualizados</span><b>{{ rfc.c }}</b></div><div class="kpi"><span>Costo RFC</span><b>${{ '%.2f'|format(rfc.total or 0) }}</b></div></div>
+<div class="grid two"><div class="card"><h3>Cobertura por puesto</h3><table><thead><tr><th>Puesto</th><th>Requerido</th><th>Activo</th><th>Cobertura</th></tr></thead><tbody>{% for x in cobertura %}<tr><td>{{x.puesto}}</td><td>{{x.requerido}}</td><td>{{x.activo}}</td><td><div class="bar"><span style="width:{{ x.cobertura if x.cobertura<100 else 100 }}%"></span></div>{{x.cobertura}}%</td></tr>{% endfor %}</tbody></table></div><div class="card"><h3>Visión ejecutiva</h3><p class="muted">Indicadores consolidados de cobertura, costo administrativo, avance del pipeline y conversión a activo.</p><div class="big-number">{{ kpis.contratados or activos }}</div><p>Contratados / Activos</p></div></div>
+{% endblock %}

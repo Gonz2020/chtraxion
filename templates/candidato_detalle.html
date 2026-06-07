@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% set active='candidatos' %}
+{% set page_title='Expediente del candidato' %}
+{% block content %}
+<div class="card candidate-head">
+  <div>
+    <div style="color:#68707b;font-weight:700">{{ c.folio }}</div>
+    <h2 style="margin:5px 0;font-weight:600">{{ c.nombre }}</h2>
+    <p><b>Puesto:</b> {{ c.puesto }} | <b>UDN:</b> {{ c.udn }} | <b>Reclutador:</b> {{ c.reclutador }}</p>
+  </div>
+  <div><span class="tag {{ c.estatus_macro|lower }}">{{ c.estatus_macro }} / {{ c.etapa }}</span></div>
+</div>
+<div class="card" style="margin-top:16px">
+  <div class="timeline">
+    {% for e in etapas %}<div class="timeline-step {{ 'done' if etapas.index(e) <= etapas.index(c.etapa) else '' }}"><span>{{ loop.index }}</span><small>{{ e }}</small></div>{% endfor %}
+  </div>
+  <form method="post" style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap"><select name="etapa" style="padding:10px;border-radius:10px;border:1px solid #d9dee7">{% for e in etapas %}<option {% if e==c.etapa %}selected{% endif %}>{{ e }}</option>{% endfor %}</select><button class="btn dark">Actualizar etapa</button><a class="btn primary" href="{{ url_for('entrevista', candidato_id=c.id) }}">Entrevista 1</a><a class="btn primary" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 2') }}">Entrevista 2</a><a class="btn primary" href="{{ url_for('hoja_ruta', candidato_id=c.id) }}">Hoja de Ruta</a><a class="btn blue" href="{{ url_for('oferta_laboral', candidato_id=c.id) }}">Oferta Laboral</a><a class="btn blue" href="{{ url_for('evaluacion', candidato_id=c.id) }}">Médico / Técnica</a><a class="btn blue" href="{{ url_for('documentacion', candidato_id=c.id) }}">Documentación</a><a class="btn blue" href="{{ url_for('induccion', candidato_id=c.id) }}">Inducción</a><a class="btn dark" href="{{ url_for('hoja_ruta_pdf', candidato_id=c.id) }}">PDF Ruta</a></form>
+</div>
+<div class="grid grid-3" style="margin-top:18px">
+  <div class="card stage"><h3>Hoja de Ruta</h3><p>{{ 'Capturada' if ruta else 'Pendiente' }}</p><a class="btn blue" href="{{ url_for('hoja_ruta', candidato_id=c.id) }}">Editar</a></div>
+  <div class="card stage"><h3>Oferta / Evaluaciones</h3><p>Oferta: {{ 'Capturada' if oferta else 'Pendiente' }}<br>Médico/Técnica: {{ 'Capturada' if evals else 'Pendiente' }}</p><a class="btn blue" href="{{ url_for('evaluacion', candidato_id=c.id) }}">Actualizar</a></div>
+  <div class="card stage"><h3>Documentación</h3><table><tbody>{% for d in docs %}<tr><td>{{ d.documento }}</td><td>{{ d.estado }}</td></tr>{% endfor %}</tbody></table><a class="btn blue" href="{{ url_for('documentacion', candidato_id=c.id) }}">Checklist</a></div>
+</div>
+<div class="card" style="margin-top:18px">
+  <h3 style="font-weight:600">Agregar nota de seguimiento</h3>
+  <form method="post" action="{{ url_for('agregar_nota', candidato_id=c.id) }}" style="display:grid;grid-template-columns:1fr 180px 120px;gap:10px;align-items:end">
+    <div class="field"><label>Nota / acuerdo</label><textarea name="nota" rows="2" placeholder="Ej. Se contactó al candidato, pendiente documento RFC..."></textarea></div>
+    <div class="field"><label>Usuario</label><input name="usuario" value="RH"></div>
+    <button class="btn primary">Guardar nota</button>
+  </form>
+</div>
+<div class="card" style="margin-top:18px"><h3 style="font-weight:600">Bitácora</h3><table><thead><tr><th>Fecha</th><th>Acción</th><th>Detalle</th><th>Usuario</th></tr></thead><tbody>{% for a in actividad %}<tr><td>{{ a.fecha }}</td><td>{{ a.accion }}</td><td>{{ a.detalle }}</td><td>{{ a.usuario }}</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

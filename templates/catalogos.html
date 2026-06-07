@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% set active='catalogos' %}
+{% set page_title='Catálogos y administración' %}
+{% block content %}
+<div class="grid grid-3" style="align-items:start">
+  <div class="card"><h3 style="font-weight:600;margin-top:0">Agregar puesto</h3><form method="post" action="{{ url_for('catalogos_agregar') }}" class="form-grid single"><input type="hidden" name="tipo" value="puesto"><label>Puesto<input name="valor" required placeholder="Ej. MONTACARGUISTA"></label><button class="btn primary">Agregar</button></form></div>
+  <div class="card"><h3 style="font-weight:600;margin-top:0">Agregar UDN</h3><form method="post" action="{{ url_for('catalogos_agregar') }}" class="form-grid single"><input type="hidden" name="tipo" value="udn"><label>UDN / Almacén<input name="valor" required placeholder="Ej. AV16 HENKEL TOLUCA"></label><label>Región<input name="region"></label><label>Localidad<input name="localidad"></label><button class="btn primary">Agregar</button></form></div>
+  <div class="card"><h3 style="font-weight:600;margin-top:0">Agregar reclutador</h3><form method="post" action="{{ url_for('catalogos_agregar') }}" class="form-grid single"><input type="hidden" name="tipo" value="reclutador"><label>Reclutador<input name="valor" required></label><label>Región<input name="region"></label><button class="btn primary">Agregar</button></form></div>
+</div>
+<div class="grid grid-3" style="margin-top:18px;align-items:start">
+  <div class="card"><h3 style="font-weight:600">Puestos</h3><table><thead><tr><th>Puesto</th><th>Perfil</th></tr></thead><tbody>{% for p in puestos %}<tr><td>{{ p.puesto }}</td><td>{{ p.perfil }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="card"><h3 style="font-weight:600">UDN / Almacén</h3><table><thead><tr><th>UDN</th><th>Región</th><th>Localidad</th></tr></thead><tbody>{% for u in udns %}<tr><td>{{ u.almacen }}</td><td>{{ u.region }}</td><td>{{ u.localidad }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="card"><h3 style="font-weight:600">Reclutadores</h3><table><thead><tr><th>Reclutador</th><th>Región</th></tr></thead><tbody>{% for r in reclutadores %}<tr><td>{{ r.reclutador }}</td><td>{{ r.region }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}

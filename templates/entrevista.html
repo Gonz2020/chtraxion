@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% set active='entrevista' %}
+{% set page_title='Entrevista del candidato' %}
+{% block content %}
+<div class="form-shell">
+  <div class="card">
+    <h2 style="font-weight:600;margin-top:0">{{ tipo }} - {{ c.nombre }}</h2>
+    <p><b>Puesto:</b> {{ c.puesto }} | <b>UDN:</b> {{ c.udn }}</p>
+    <form method="post" class="form">
+      <input type="hidden" name="tipo" value="{{ tipo }}">
+      {% for p in preguntas %}
+      <div class="field full"><label>{{ loop.index }}. {{ p }}</label><textarea name="p{{ loop.index0 }}" rows="2">{{ respuestas.get('p' ~ loop.index0, '') }}</textarea></div>
+      {% endfor %}
+      <div class="field"><label>Resultado entrevista</label><select name="resultado">{% for r in resultados %}<option {% if data and data.resultado==r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Evaluador</label><input name="evaluador" value="{{ data.evaluador if data else '' }}"></div>
+      <div class="field full"><label>Comentarios generales</label><textarea name="comentarios" rows="3">{{ data.comentarios if data else '' }}</textarea></div>
+      <div class="field full"><button class="btn primary">Guardar entrevista</button><a class="btn dark" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Volver</a></div>
+    </form>
+  </div>
+  <aside class="info-panel"><h3>Plantilla automática</h3><p>Las preguntas cambian según el puesto. Para montacarguista y patinero se cargan preguntas operativas iniciales; más adelante se podrán administrar desde catálogos.</p><a class="btn blue" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 1') }}">Entrevista 1</a><a class="btn blue" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 2') }}" style="margin-top:8px">Entrevista 2</a></aside>
+</div>
+{% endblock %}

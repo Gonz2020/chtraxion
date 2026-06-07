@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% set active='oferta' %}
+{% set page_title='Oferta Laboral' %}
+{% block content %}
+<div class="form-shell">
+  <div class="card">
+    <h2 style="font-weight:600;margin-top:0">Oferta laboral - {{ c.nombre }}</h2>
+    <form method="post" class="form">
+      <div class="field"><label>Sueldo</label><input name="sueldo" value="{{ data.sueldo if data else '' }}"></div>
+      <div class="field"><label>Prestaciones</label><input name="prestaciones" value="{{ data.prestaciones if data else '' }}"></div>
+      <div class="field"><label>Bonos</label><input name="bonos" value="{{ data.bonos if data else '' }}"></div>
+      <div class="field"><label>Horario</label><input name="horario" value="{{ data.horario if data else '' }}"></div>
+      <div class="field"><label>Lugar de trabajo</label><input name="lugar_trabajo" value="{{ data.lugar_trabajo if data else '' }}"></div>
+      <div class="field"><label>Fecha primer pago</label><input type="date" name="fecha_primer_pago" value="{{ data.fecha_primer_pago if data else '' }}"></div>
+      <div class="field full"><label>Checklist explicado al candidato</label><div class="check-grid">{% for x in checklist %}<label><input type="checkbox" name="{{ x }}" {% if checks.get(x)=='Si' %}checked{% endif %}> {{ x }}</label>{% endfor %}</div></div>
+      <div class="field full"><button class="btn primary">Guardar oferta</button><a class="btn dark" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Volver</a></div>
+    </form>
+  </div>
+  <aside class="info-panel"><h3>Objetivo</h3><p>Registrar que la oferta fue explicada: sueldo, prestaciones, bonos, horario, lugar de trabajo y fecha del primer pago. Esta sección alimenta la etapa de reclutamiento.</p></aside>
+</div>
+{% endblock %}

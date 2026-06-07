@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% set active='documentacion' %}
+{% set page_title='Checklist Documental' %}
+{% block content %}
+<div class="card">
+  <h2 style="font-weight:600;margin-top:0">Documentación - {{ c.nombre }}</h2>
+  <form method="post">
+    <table><thead><tr><th>Documento</th><th>Estado</th></tr></thead><tbody>{% for d in docs %}<tr><td>{{ d.documento }}</td><td><select name="estado_{{ d.id }}" style="padding:9px;border-radius:9px;border:1px solid #d9dee7"><option {% if d.estado=='Pendiente' %}selected{% endif %}>Pendiente</option><option {% if d.estado=='Recibido' %}selected{% endif %}>Recibido</option><option {% if d.estado=='Validado' %}selected{% endif %}>Validado</option><option {% if d.estado=='Rechazado' %}selected{% endif %}>Rechazado</option></select></td></tr>{% endfor %}</tbody></table>
+    <div style="margin-top:16px"><button class="btn primary">Guardar checklist</button><a class="btn dark" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Volver</a></div>
+  </form>
+</div>
+{% endblock %}

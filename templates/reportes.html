@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% set active='reportes' %}
+{% set page_title='Reportes Capital Humano' %}
+{% block content %}
+<section class="kpis">
+  <div class="card kpi"><div class="label">Total candidatos</div><div class="value">{{ kpis.total }}</div></div>
+  <div class="card kpi"><div class="label">En proceso</div><div class="value">{{ kpis.proceso }}</div></div>
+  <div class="card kpi"><div class="label">Activos</div><div class="value">{{ kpis.activos }}</div></div>
+  <div class="card kpi"><div class="label">Documentación</div><div class="value">{{ kpis.docs }}</div></div>
+  <div class="card kpi"><div class="label">RFC actualizados</div><div class="value">{{ kpis.rfc }}</div></div>
+  <div class="card kpi"><div class="label">Costo RFC</div><div class="value">${{ '%.2f'|format(kpis.costo_rfc) }}</div></div>
+</section>
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card">
+    <h2 style="margin-top:0;font-weight:500">Exportables ejecutivos</h2>
+    <p style="color:#68707b">Reportes listos para compartir con Capital Humano, Operaciones o Dirección.</p>
+    <div class="report-actions">
+      <a class="btn blue" href="{{ url_for('reporte_pipeline') }}">Pipeline completo</a>
+      <a class="btn blue" href="{{ url_for('reporte_documentacion') }}">Documentación</a>
+      <a class="btn blue" href="{{ url_for('reporte_rfc') }}">RFC actualizados</a>
+      <a class="btn blue" href="{{ url_for('reporte_headcount') }}">Headcount</a>
+      <a class="btn primary" href="{{ url_for('plantilla_candidatos') }}">Plantilla RyS</a>
+      <a class="btn primary" href="{{ url_for('plantilla_headcount') }}">Plantilla HC</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0;font-weight:500">Resumen por etapa</h2>
+    <table><thead><tr><th>Etapa</th><th>Estatus macro</th><th>Total</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.etapa }}</td><td><span class="tag {{ r.estatus_macro|lower }}">{{ r.estatus_macro }}</span></td><td>{{ r.total }}</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+{% endblock %}

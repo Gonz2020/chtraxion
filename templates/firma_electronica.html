@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if c %}
+<div class="grid two"><div class="card"><h2>Firma Electrónica</h2><p class="muted">{{ c.nombre }} · {{ c.folio }}</p><form method="post" enctype="multipart/form-data" class="form-grid"><label>Documento<select name="documento"><option>Contrato Individual</option><option>Carta Oferta</option><option>Políticas</option><option>Reglamento</option><option>Carta Responsiva</option></select></label><label>Firmante<input name="firmante" value="{{ c.nombre }}"></label><label>PDF firmado<input type="file" name="archivo_pdf"></label><button class="btn primary">Guardar firma</button></form></div><div class="card"><h3>Firmas registradas</h3><table><thead><tr><th>Documento</th><th>Firmante</th><th>Fecha</th></tr></thead><tbody>{% for f in firmas %}<tr><td>{{f.documento}}</td><td>{{f.firmante}}</td><td>{{f.fecha[:16]}}</td></tr>{% endfor %}</tbody></table></div></div>
+{% else %}
+<div class="card"><h2>Firma Electrónica</h2><p class="muted">Carga contratos y documentos firmados por mouse, touch o tablet externa.</p></div><div class="card"><table><thead><tr><th>Nombre</th><th>Puesto</th><th>Etapa</th><th>Acción</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small" href="{{ url_for('firma_electronica', candidato_id=r.id) }}">Firmar</a></td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% endblock %}

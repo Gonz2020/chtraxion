@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% set active='candidatos' %}
+{% set page_title='Candidatos' %}
+{% block content %}
+<div class="card">
+  <form method="get" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <input name="q" value="{{ q }}" placeholder="Buscar por nombre, puesto, UDN o reclutador" style="flex:1;min-width:280px;border:1px solid #d9dee7;border-radius:10px;padding:11px">
+    <select name="etapa" style="border:1px solid #d9dee7;border-radius:10px;padding:11px"><option value="">Todas las etapas</option>{% for e in etapas %}<option value="{{ e }}" {% if etapa_sel==e %}selected{% endif %}>{{ e }}</option>{% endfor %}</select>
+    <button class="btn dark">Buscar</button><a class="btn primary" href="{{ url_for('candidato_nuevo') }}">Nuevo</a>
+  </form>
+  <form method="post" action="{{ url_for('importar_candidatos') }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap"><b>Importar Excel RyS:</b><input type="file" name="archivo" accept=".xlsx,.xls" required><button class="btn blue">Importar / Sincronizar</button><a class="btn blue" href="{{ url_for('exportar') }}">Exportar</a></form>
+  <table><thead><tr><th>Folio</th><th>Nombre</th><th>Teléfono</th><th>Puesto</th><th>UDN</th><th>Reclutador</th><th>Etapa</th><th>Acción</th></tr></thead><tbody>{% for c in rows %}<tr><td>{{ c.folio }}</td><td><b style="font-weight:600">{{ c.nombre }}</b></td><td>{{ c.telefono }}</td><td>{{ c.puesto }}</td><td>{{ c.udn }}</td><td>{{ c.reclutador }}</td><td><span class="tag {{ c.estatus_macro|lower }}">{{ c.etapa }}</span></td><td><a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Abrir</a></td></tr>{% endfor %}</tbody></table>
+</div>
+{% endblock %}

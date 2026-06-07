@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>Integración Access Kiosk</h2><p class="muted">Cuando el candidato pasa a Activo, aquí se genera el ID de empleado y queda listo para sincronizarse al kiosko de asistencia QR.</p></div>
+<div class="card"><table><thead><tr><th>Folio</th><th>Nombre</th><th>Puesto</th><th>Empleado</th><th>QR</th><th>Estatus</th><th>Acción</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.folio}}</td><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.empleado_id or 'Pendiente'}}</td><td>{{r.qr_generado or 'No'}}</td><td>{{r.kiosk_estatus or 'Pendiente'}}</td><td><a class="btn small primary" href="{{ url_for('access_kiosk_generar', candidato_id=r.id) }}">Generar</a></td></tr>{% endfor %}{% if not rows %}<tr><td colspan="7">No hay colaboradores activos para sincronizar.</td></tr>{% endif %}</tbody></table></div>
+{% endblock %}

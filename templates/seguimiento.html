@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% set active='seguimiento' %}
+{% set page_title='Seguimiento operativo / SLA' %}
+{% block content %}
+<div class="module-hero card">
+  <div><span class="pill">Control operativo</span><h2>Seguimiento de candidatos por SLA</h2><p>Monitorea días en etapa, vencimientos, candidatos detenidos y próximos pasos para evitar atrasos en reclutamiento y contratación.</p></div>
+  <a class="btn primary" href="{{ url_for('candidato_nuevo') }}">+ Nuevo candidato</a>
+</div>
+<section class="kpis compact-kpis">
+  <a class="card kpi alert-card red" href="{{ url_for('seguimiento', sla='rojo') }}"><div class="label">Vencidos</div><div class="value">{{ resumen.vencidos }}</div></a>
+  <a class="card kpi alert-card amber" href="{{ url_for('seguimiento', sla='amarillo') }}"><div class="label">Por vencer</div><div class="value">{{ resumen.por_vencer }}</div></a>
+  <a class="card kpi alert-card green" href="{{ url_for('seguimiento', sla='verde') }}"><div class="label">En tiempo</div><div class="value">{{ resumen.en_tiempo }}</div></a>
+  <div class="card kpi"><div class="label">Total seguimiento</div><div class="value">{{ resumen.total }}</div></div>
+</section>
+<div class="card">
+  <form method="get" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <input name="q" value="{{ q }}" placeholder="Buscar candidato, puesto, UDN o reclutador" style="flex:1;min-width:260px;border:1px solid #d9dee7;border-radius:10px;padding:11px">
+    <select name="etapa" style="border:1px solid #d9dee7;border-radius:10px;padding:11px"><option value="">Todas las etapas</option>{% for e in etapas %}<option value="{{ e }}" {% if e==etapa_sel %}selected{% endif %}>{{ e }}</option>{% endfor %}</select>
+    <select name="sla" style="border:1px solid #d9dee7;border-radius:10px;padding:11px"><option value="">Todos los SLA</option><option value="rojo" {% if sla_sel=='rojo' %}selected{% endif %}>Vencido</option><option value="amarillo" {% if sla_sel=='amarillo' %}selected{% endif %}>Por vencer</option><option value="verde" {% if sla_sel=='verde' %}selected{% endif %}>En tiempo</option></select>
+    <button class="btn dark">Filtrar</button>
+  </form>
+  <table><thead><tr><th>Folio</th><th>Candidato</th><th>Puesto / UDN</th><th>Etapa</th><th>Días etapa</th><th>SLA</th><th>Reclutador</th><th>Acción</th></tr></thead><tbody>
+    {% for c in rows %}<tr><td>{{ c.folio }}</td><td><b style="font-weight:600">{{ c.nombre }}</b><br><small>{{ c.telefono or '' }}</small></td><td>{{ c.puesto }}<br><small>{{ c.udn }}</small></td><td><span class="tag {{ c.estatus_macro|lower }}">{{ c.etapa }}</span></td><td>{{ c.dias_etapa }} / {{ c.sla_limite }}</td><td><span class="sla-badge {{ c.sla_color }}">{{ c.sla_texto }}</span></td><td>{{ c.reclutador }}</td><td><a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Abrir</a></td></tr>{% endfor %}
+    {% if not rows %}<tr><td colspan="8">No hay candidatos con estos filtros.</td></tr>{% endif %}
+  </tbody></table>
+</div>
+{% endblock %}

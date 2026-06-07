@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% set active='headcount' %}
+{% set page_title='Headcount y Cobertura' %}
+{% block content %}
+<div class="card" style="margin-bottom:18px">
+  <h2 style="font-weight:600;margin-top:0">Carga de Headcount</h2>
+  <p>Importa un Excel con columnas flexibles: <b>UDN/ALMACEN/CUENTA</b>, <b>PUESTO</b>, <b>HC/REQUERIDO</b> y opcional <b>NOM/ACTIVO</b>. La cobertura se calculará contra el headcount requerido real.</p>
+  <form method="post" action="{{ url_for('importar_headcount') }}" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <input type="file" name="archivo" accept=".xlsx,.xls" required>
+    <button class="btn primary">Importar Headcount</button>
+  </form>
+</div>
+<div class="grid grid-2">
+  <div class="card"><h2>Cobertura por puesto</h2>{% for r in cobertura %}<div style="display:flex;justify-content:space-between;font-weight:700;margin-top:14px"><span>{{ r.puesto }}</span><span>{{ r.pct }}%</span></div><div class="progress"><div style="width:{{ r.pct }}%"></div></div><small>Activos {{ r.activos }} / Requerido {{ r.total }} | Vacantes {{ r.vacantes }}</small>{% endfor %}</div>
+  <div class="card"><h2>Base Headcount</h2><table><thead><tr><th>UDN</th><th>Puesto</th><th>Requerido</th><th>Activo base</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.udn }}</td><td>{{ r.puesto }}</td><td>{{ r.requerido }}</td><td>{{ r.activo }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}

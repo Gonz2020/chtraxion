@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% set active='induccion' %}
+{% set page_title='Inducción y entrega a operación' %}
+{% block content %}
+<div class="form-shell">
+  <div class="card">
+    <h2 style="font-weight:600;margin-top:0">Inducción - {{ c.nombre }}</h2>
+    <form method="post" class="form">
+      <div class="field"><label>Fecha de inducción</label><input type="date" name="fecha_induccion" value="{{ data.fecha_induccion if data else '' }}"></div>
+      <div class="field"><label>Responsable</label><input name="responsable" value="{{ data.responsable if data else '' }}"></div>
+      <div class="field"><label>Resultado</label><select name="resultado"><option>Pendiente</option><option {% if data and data.resultado=='Completada' %}selected{% endif %}>Completada</option><option {% if data and data.resultado=='No asistió' %}selected{% endif %}>No asistió</option></select></div>
+      <div class="field full"><label>Checklist de inducción</label><div class="check-grid">{% for x in checklist %}<label><input type="checkbox" name="{{ x }}" {% if checks.get(x)=='Si' %}checked{% endif %}> {{ x }}</label>{% endfor %}</div></div>
+      <div class="field full"><label>Observaciones</label><textarea name="observaciones" rows="4">{{ data.observaciones if data else '' }}</textarea></div>
+      <div class="field full"><button class="btn primary">Guardar inducción</button><a class="btn dark" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Volver</a></div>
+    </form>
+  </div>
+  <aside class="info-panel"><h3>Cierre del proceso</h3><p>Cuando el resultado sea <b>Completada</b>, el sistema moverá al candidato a la etapa <b>Activo</b>. Esta información alimenta el dashboard y la cobertura.</p></aside>
+</div>
+{% endblock %}

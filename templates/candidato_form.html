@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% set active='candidatos' %}
+{% set page_title='Registro de candidato' %}
+{% block content %}
+<div class="hero-minimal" style="min-height:160px;margin-bottom:18px">
+  <div class="hero-content">
+    <span class="eyebrow">Registro inicial</span>
+    <h2 style="font-size:32px">Alta de candidato</h2>
+    <p>Captura los datos principales para iniciar el flujo de reclutamiento. La información alimentará el dashboard y la hoja de ruta digital.</p>
+  </div>
+</div>
+<div class="form-shell">
+  <div class="card">
+    <h2 style="font-weight:600;margin-top:0">Nuevo candidato</h2>
+    <form method="post" class="form">
+      <div class="field"><label>Nombre completo *</label><input name="nombre" required></div>
+      <div class="field"><label>Teléfono</label><input name="telefono"></div>
+      <div class="field"><label>Email</label><input name="email" type="email"></div>
+      <div class="field"><label>Fecha de entrevista</label><input name="fecha_entrevista" type="date"></div>
+      <div class="field"><label>Región</label><input name="region"></div>
+      <div class="field"><label>Localidad</label><input name="localidad"></div>
+      <div class="field"><label>UDN / Almacén</label><select name="udn"><option value="">Seleccionar</option>{% for u in udns %}<option>{{ u.almacen }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Puesto *</label><select name="puesto" required><option value="">Seleccionar</option>{% for p in puestos %}<option>{{ p.puesto }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Reclutador</label><select name="reclutador"><option value="">Seleccionar</option>{% for r in reclutadores %}<option>{{ r.reclutador }}</option>{% endfor %}</select></div>
+      <div class="field full"><button class="btn primary">Guardar candidato</button></div>
+    </form>
+  </div>
+  <aside class="info-panel">
+    <h3>Flujo sugerido</h3>
+    <p>Registro → Entrevista → Oferta Laboral → Servicio Médico → Evaluación Técnica → Documentación → Inducción → Entrega a Operaciones → Activo.</p>
+    <p>Usa catálogos para evitar captura libre y mantener indicadores consistentes por puesto, UDN y reclutador.</p>
+  </aside>
+</div>
+{% endblock %}

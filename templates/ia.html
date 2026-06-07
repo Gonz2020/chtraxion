@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% set active='ia' %}
+{% set page_title='IA Capital Humano' %}
+{% block content %}
+<div class="hero-minimal" style="margin-bottom:18px">
+  <div class="hero-content">
+    <span class="eyebrow">IA RH</span>
+    <h2>Asistente inteligente para reclutamiento</h2>
+    <p>Herramientas internas para analizar candidatos, generar preguntas de entrevista por puesto y detectar riesgos antes de avanzar etapas.</p>
+  </div>
+</div>
+<div class="grid grid-2" style="align-items:start">
+  <div class="card">
+    <h3 style="font-weight:600;margin-top:0">Analizar candidato</h3>
+    <p style="color:#68707b">Selecciona un candidato para generar un resumen de compatibilidad basado en hoja de ruta, entrevistas, evaluaciones y documentación.</p>
+    <table>
+      <thead><tr><th>Folio</th><th>Candidato</th><th>Puesto</th><th>Etapa</th><th>Acción</th></tr></thead>
+      <tbody>
+        {% for c in candidatos %}
+        <tr><td>{{ c.folio }}</td><td>{{ c.nombre }}</td><td>{{ c.puesto }}</td><td>{{ c.etapa }}</td><td><a class="btn blue" href="{{ url_for('ia_candidato', candidato_id=c.id) }}">Analizar</a></td></tr>
+        {% endfor %}
+        {% if not candidatos %}<tr><td colspan="5">No hay candidatos cargados.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h3 style="font-weight:600;margin-top:0">Generador de preguntas</h3>
+    <p style="color:#68707b">Genera una guía inicial para entrevista 1 o entrevista 2 según el puesto.</p>
+    <form method="post" action="{{ url_for('ia_preguntas') }}" class="form-grid single">
+      <label>Puesto
+        <select name="puesto">
+          <option value="GENERAL">GENERAL</option>
+          {% for p in puestos %}<option value="{{ p.puesto }}" {% if puesto_sel==p.puesto %}selected{% endif %}>{{ p.puesto }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Tipo entrevista
+        <select name="tipo"><option {% if tipo_sel=='Entrevista 1' %}selected{% endif %}>Entrevista 1</option><option {% if tipo_sel=='Entrevista 2' %}selected{% endif %}>Entrevista 2</option></select>
+      </label>
+      <button class="btn primary">Generar preguntas</button>
+    </form>
+    {% if preguntas %}
+      <div class="ai-box" style="margin-top:16px">
+        <h4>Preguntas sugeridas</h4>
+        <ol>{% for q in preguntas %}<li>{{ q }}</li>{% endfor %}</ol>
+      </div>
+    {% endif %}
+  </div>
+</div>
+<div class="grid grid-3" style="margin-top:18px">
+  <div class="card"><h3 style="font-weight:600">Resumen CV</h3><p>Preparado para integrar lectura de CV y extracción de experiencia, habilidades y coincidencia.</p></div>
+  <div class="card"><h3 style="font-weight:600">Riesgo de rotación</h3><p>Analiza distancia, sueldo, permanencia, disponibilidad de turnos y experiencia operativa.</p></div>
+  <div class="card"><h3 style="font-weight:600">Recomendación de etapa</h3><p>Sugiere si avanzar, detener, pedir documentación o solicitar validación técnica.</p></div>
+</div>
+{% endblock %}

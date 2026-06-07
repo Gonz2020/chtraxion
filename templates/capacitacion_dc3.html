@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if c %}
+<div class="grid two">
+  <div class="card"><h2>Capacitación / DC3</h2><p class="muted">{{ c.nombre }} · {{ c.puesto }}</p>
+    <form method="post" class="form-grid">
+      <label>Curso<select name="curso"><option>Inducción</option><option>5S</option><option>Seguridad</option><option>Montacargas</option><option>Patín</option><option>WMS</option><option>SAP</option></select></label>
+      <label>Fecha curso<input type="date" name="fecha_curso"></label>
+      <label>Instructor<input name="instructor"></label>
+      <label>Resultado<select name="resultado"><option>Pendiente</option><option>Aprobado</option><option>No aprobado</option></select></label>
+      <label>DC3 generado<select name="dc3_generado"><option>No</option><option>Si</option></select></label>
+      <label>Observaciones<textarea name="observaciones"></textarea></label>
+      <button class="btn primary">Guardar capacitación</button>
+    </form>
+  </div>
+  <div class="card"><h3>Historial</h3><table><thead><tr><th>Curso</th><th>Resultado</th><th>DC3</th><th>Fecha</th></tr></thead><tbody>{% for x in cursos %}<tr><td>{{x.curso}}</td><td>{{x.resultado}}</td><td>{{x.dc3_generado}}</td><td>{{x.fecha_curso}}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% else %}
+<div class="card"><h2>Capacitación y DC3</h2><p class="muted">Control de cursos, DC3 generados, vigencias y avance de inducción.</p></div>
+<div class="grid two"><div class="card"><h3>Candidatos disponibles</h3><table><thead><tr><th>Nombre</th><th>Puesto</th><th>Etapa</th><th></th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small" href="{{ url_for('capacitacion_dc3', candidato_id=r.id) }}">Capturar</a></td></tr>{% endfor %}</tbody></table></div><div class="card"><h3>Últimos cursos</h3><table><thead><tr><th>Candidato</th><th>Curso</th><th>Resultado</th><th>DC3</th></tr></thead><tbody>{% for x in cursos %}<tr><td>{{x.nombre}}</td><td>{{x.curso}}</td><td>{{x.resultado}}</td><td>{{x.dc3_generado}}</td></tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+{% endblock %}

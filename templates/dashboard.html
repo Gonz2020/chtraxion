@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% set active='dashboard' %}
+{% set page_title='Dashboard Ejecutivo de Atracción de Talento' %}
+{% block content %}
+{% set coverage = namespace(total=0, count=0, avg=0) %}
+{% for r in cobertura %}{% set coverage.total = coverage.total + r.pct %}{% set coverage.count = coverage.count + 1 %}{% endfor %}
+{% if coverage.count > 0 %}{% set coverage.avg = (coverage.total / coverage.count)|round(0, 'floor')|int %}{% endif %}
+{% set process_pct = ((kpis.proceso / kpis.total) * 100)|round(0, 'floor')|int if kpis.total else 0 %}
+<div class="hero-minimal">
+  <div class="hero-content">
+    <span class="eyebrow">Plataforma Integral de Capital Humano</span>
+    <h2>De registro de candidato a entrada a laborar</h2>
+    <p>Gestión centralizada de candidatos, entrevistas, hoja de ruta, oferta laboral, evaluación médica, evaluación técnica, documentación, inducción y cobertura de headcount.</p>
+    <div style="margin-top:18px"><a class="btn primary" href="{{ url_for('candidato_nuevo') }}">Registrar candidato</a> <a class="btn dark" href="{{ url_for('candidatos') }}">Ver candidatos</a></div>
+  </div>
+</div>
+<section class="kpis">
+  <div class="card kpi"><div class="label">Total candidatos</div><div class="value">{{ kpis.total }}</div></div>
+  <div class="card kpi"><div class="label">En proceso</div><div class="value">{{ kpis.proceso }}</div></div>
+  <div class="card kpi"><div class="label">Activos</div><div class="value">{{ kpis.activos }}</div></div>
+  <div class="card kpi"><div class="label">Documentación</div><div class="value">{{ kpis.docs }}</div></div>
+  <div class="card kpi"><div class="label">Registros hoy</div><div class="value">{{ kpis.hoy }}</div></div>
+  <div class="card kpi"><div class="label">RFC actualizados</div><div class="value">{{ kpis.rfc }}</div><small>${{ '%0.2f'|format(kpis.costo_rfc) }}</small></div>
+</section>
+<section class="kpis compact-kpis">
+  <a class="card kpi alert-card red" href="{{ url_for('seguimiento', sla='rojo') }}"><div class="label">SLA vencido</div><div class="value">{{ seguimiento.vencidos }}</div></a>
+  <a class="card kpi alert-card amber" href="{{ url_for('seguimiento', sla='amarillo') }}"><div class="label">Por vencer</div><div class="value">{{ seguimiento.por_vencer }}</div></a>
+  <a class="card kpi alert-card green" href="{{ url_for('seguimiento', sla='verde') }}"><div class="label">En tiempo</div><div class="value">{{ seguimiento.en_tiempo }}</div></a>
+  <a class="card kpi alert-card" href="{{ url_for('agenda') }}"><div class="label">Agenda entrevistas</div><div class="value">{{ agenda|length }}</div></a>
+  <a class="card kpi alert-card" href="{{ url_for('plantilla_candidatos') }}"><div class="label">Plantilla</div><div class="value">RyS</div></a>
+  <a class="card kpi alert-card" href="{{ url_for('plantilla_headcount') }}"><div class="label">Plantilla</div><div class="value">HC</div></a>
+</section>
+<div class="pipeline-strip">
+  {% for e in etapas %}<a href="{{ url_for('candidatos', etapa=e) }}" class="stage-chip"><span>{{ e }}</span><b>{{ pipeline[e] }}</b></a>{% endfor %}
+</div>
+<div class="power-grid">
+  <aside class="filter-panel">
+    <div class="filter-title">Puesto</div>
+    {% for r in cobertura[:12] %}<a class="filter-chip" href="{{ url_for('candidatos', puesto=r.puesto) }}">{{ r.puesto }}</a>{% endfor %}
+    {% if not cobertura %}<span class="filter-chip gray">Sin datos importados</span>{% endif %}
+  </aside>
+  <section>
+    <div class="visual-row">
+      <div class="visual-card gauge-card">
+        <h3 class="visual-title">Porcentaje cobertura</h3>
+        <div class="gauge" style="--pct:{{ coverage.avg }}"><div class="gauge-value">{{ coverage.avg }}%</div></div>
+        <div class="gauge-footer">
+          <div class="metric-box"><b>HC</b><span>{{ kpis.total }}</span></div>
+          <div class="metric-box"><b>NOM</b><span>{{ kpis.activos }}</span></div>
+          <div class="metric-box"><b>VAC</b><span>{{ kpis.total - kpis.activos }}</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="visual-card process-card">
+          <h3 class="visual-title">Candidatos en proceso</h3>
+          <div class="thermo" style="--pct:{{ process_pct }}"></div>
+          <div class="scale"><span>0%</span><span>10%</span><span>20%</span><span>30%</span><span>40%</span><span>50%</span><span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span></div>
+        </div>
+        <div class="visual-card" style="margin-top:16px">
+          <h3 class="visual-title">Cobertura puestos clave</h3>
+          <div class="key-bars">
+            {% for r in cobertura[:5] %}
+              <div class="bar-wrap"><div class="bar" style="height:{{ 20 + (r.pct * 1.4) }}px"></div><div class="bar-label">{{ r.puesto[:16] }}</div></div>
+            {% endfor %}
+            {% if not cobertura %}<p style="color:#68707b">Importa el Excel RyS para visualizar puestos clave.</p>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <aside>
+    <div class="filter-panel">
+      <div class="filter-title">Cuenta / UDN</div>
+      {% for u in udns %}<a class="filter-chip gray" href="{{ url_for('candidatos', udn=u.udn) }}">{{ u.udn }}</a>{% endfor %}
+      {% if not udns %}<span class="filter-chip gray">Sin cuentas cargadas</span>{% endif %}
+    </div>
+    <div class="visual-card objective" style="margin-top:16px">
+      <h3 class="visual-title">Estado del objetivo anual</h3>
+      <div class="traffic" title="Indicador objetivo"></div>
+    </div>
+  </aside>
+</div>
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card">
+    <h3 style="font-weight:600;margin-top:0">Agenda próxima</h3>
+    <table><thead><tr><th>Fecha entrevista</th><th>Candidato</th><th>Puesto</th><th>Acción</th></tr></thead><tbody>
+      {% for a in agenda %}<tr><td>{{ a.fecha_entrevista }}</td><td>{{ a.nombre }}</td><td>{{ a.puesto }}</td><td><a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=a.id) }}">Abrir</a></td></tr>{% endfor %}
+      {% if not agenda %}<tr><td colspan="4">Sin entrevistas programadas.</td></tr>{% endif %}
+    </tbody></table>
+  </div>
+  <div class="card">
+    <h3 style="font-weight:600;margin-top:0">Seguimiento operativo</h3>
+    <p style="color:#68707b;margin-top:0">Alertas por días en etapa para evitar que candidatos se queden detenidos.</p>
+    <div class="sla-legend"><a href="{{ url_for('seguimiento', sla='rojo') }}" class="sla-dot red">Vencido: {{ seguimiento.vencidos }}</a><a href="{{ url_for('seguimiento', sla='amarillo') }}" class="sla-dot amber">Por vencer: {{ seguimiento.por_vencer }}</a><a href="{{ url_for('seguimiento', sla='verde') }}" class="sla-dot green">En tiempo: {{ seguimiento.en_tiempo }}</a></div>
+  </div>
+</div>
+<div class="card" style="margin-top:18px">
+  <h3 style="font-weight:600;margin-top:0">Últimos candidatos</h3>
+  <table><thead><tr><th>Folio</th><th>Nombre</th><th>Puesto</th><th>UDN</th><th>Etapa</th><th>Acción</th></tr></thead><tbody>{% for c in recientes %}<tr><td>{{ c.folio }}</td><td><b style="font-weight:600">{{ c.nombre }}</b></td><td>{{ c.puesto }}</td><td>{{ c.udn }}</td><td><span class="tag {{ c.estatus_macro|lower }}">{{ c.etapa }}</span></td><td><a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Abrir</a></td></tr>{% endfor %}</tbody></table>
+</div>
+{% endblock %}

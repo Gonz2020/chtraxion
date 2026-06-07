@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>IA Avanzada Capital Humano</h2><p class="muted">Preparado para análisis de CV, matching vacante-candidato, preguntas automáticas y resumen ejecutivo de entrevista.</p></div>
+<div class="grid two"><div class="card"><h3>Funciones IA</h3><ul><li>Analizador de CV y experiencia.</li><li>Matching contra vacante.</li><li>Generación de preguntas por puesto.</li><li>Resumen de entrevista y recomendación.</li><li>Detección de riesgos operativos.</li></ul></div><div class="card"><h3>Candidatos recientes</h3><table><thead><tr><th>Nombre</th><th>Puesto</th><th>Etapa</th><th>IA</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small" href="{{ url_for('ia_candidato', candidato_id=r.id) }}">Analizar</a></td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

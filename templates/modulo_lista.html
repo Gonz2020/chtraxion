@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% set active=active %}
+{% set page_title=page_title %}
+{% block content %}
+<div class="module-hero card">
+  <div>
+    <span class="pill">Módulo operativo</span>
+    <h2>{{ titulo }}</h2>
+    <p>{{ descripcion }}</p>
+  </div>
+  <a class="btn primary" href="{{ url_for('candidato_nuevo') }}">+ Nuevo candidato</a>
+</div>
+
+<div class="card">
+  <form method="get" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <input name="q" value="{{ q }}" placeholder="Buscar por candidato, puesto, UDN o reclutador" style="flex:1;min-width:280px;border:1px solid #d9dee7;border-radius:10px;padding:11px">
+    <button class="btn dark">Buscar</button>
+  </form>
+
+  {% if rows %}
+  <table>
+    <thead>
+      <tr><th>Folio</th><th>Candidato</th><th>Puesto</th><th>UDN</th><th>Reclutador</th><th>Etapa</th><th>Acciones</th></tr>
+    </thead>
+    <tbody>
+      {% for c in rows %}
+      <tr>
+        <td>{{ c.folio }}</td>
+        <td><b style="font-weight:600">{{ c.nombre }}</b><br><small>{{ c.telefono or '' }}</small></td>
+        <td>{{ c.puesto }}</td>
+        <td>{{ c.udn }}</td>
+        <td>{{ c.reclutador }}</td>
+        <td><span class="tag {{ c.estatus_macro|lower }}">{{ c.etapa }}</span></td>
+        <td style="display:flex;gap:6px;flex-wrap:wrap">
+          <a class="btn blue" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Expediente</a>
+          {% if endpoint1 == 'entrevista' %}
+            <a class="btn primary" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 1') }}">{{ action1 }}</a>
+            <a class="btn dark" href="{{ url_for('entrevista', candidato_id=c.id, tipo='Entrevista 2') }}">{{ action2 }}</a>
+          {% elif endpoint1 %}
+            <a class="btn primary" href="{{ url_for(endpoint1, candidato_id=c.id) }}">{{ action1 }}</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state">
+      <h3>No hay candidatos pendientes para este módulo</h3>
+      <p>Cuando un candidato avance a esta etapa aparecerá aquí automáticamente.</p>
+      <a class="btn primary" href="{{ url_for('candidatos') }}">Ver todos los candidatos</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

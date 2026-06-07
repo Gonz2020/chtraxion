@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% set active='ia' %}
+{% set page_title='Resultado IA del candidato' %}
+{% block content %}
+<div class="card ai-result">
+  <div style="display:flex;justify-content:space-between;gap:18px;align-items:center;flex-wrap:wrap">
+    <div>
+      <span class="eyebrow">{{ c.folio }}</span>
+      <h2 style="font-weight:500;margin:6px 0 4px">{{ c.nombre }}</h2>
+      <p style="color:#68707b;margin:0">{{ c.puesto }} · {{ c.udn }} · {{ c.etapa }}</p>
+    </div>
+    <div class="score-ring" style="--pct:{{ analisis.score }}"><b>{{ analisis.score }}%</b><span>{{ analisis.nivel }}</span></div>
+  </div>
+  <div class="ai-box" style="margin-top:20px"><h3>Resumen ejecutivo</h3><p>{{ analisis.resumen }}</p></div>
+  <div class="grid grid-3" style="margin-top:18px">
+    <div class="ai-box good"><h3>Fortalezas</h3><ul>{% for x in analisis.fortalezas %}<li>{{ x }}</li>{% endfor %}{% if not analisis.fortalezas %}<li>Sin fortalezas detectadas todavía.</li>{% endif %}</ul></div>
+    <div class="ai-box warn"><h3>Riesgos</h3><ul>{% for x in analisis.riesgos %}<li>{{ x }}</li>{% endfor %}{% if not analisis.riesgos %}<li>Sin riesgos críticos detectados.</li>{% endif %}</ul></div>
+    <div class="ai-box"><h3>Recomendaciones</h3><ul>{% for x in analisis.recomendaciones %}<li>{{ x }}</li>{% endfor %}</ul></div>
+  </div>
+  <div style="margin-top:18px"><a class="btn dark" href="{{ url_for('candidato_detalle', candidato_id=c.id) }}">Abrir expediente</a> <a class="btn blue" href="{{ url_for('ia') }}">Volver a IA</a></div>
+</div>
+{% endblock %}
