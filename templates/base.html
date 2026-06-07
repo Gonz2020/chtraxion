@@ -10,7 +10,7 @@
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">TRAXIÓN</div>
+      <img class="brand-img" src="{{ url_for('static', filename='img/logo_traxion.png') }}" alt="Traxión">
       <div class="sub">Capital Humano</div>
       <div class="caption">De registro a laborar</div>
     </div>
@@ -21,7 +21,7 @@
       {% endfor %}
       <a class="{{ 'active' if active=='reportes' else '' }}" href="{{ url_for('reportes_panel') }}">📋 Reportes</a>
     </nav>
-    <div class="footer"><b>Gonzalo Luna</b><br>Arquitectura de Soluciones Digitales<br>v2.7-3.0 Plataforma CH</div>
+    <div class="footer"><b>Gonzalo Luna</b><br>Arquitectura de Soluciones Digitales<br>v3.2 Corporativo</div>
   </aside>
   <main class="main">
     <header class="topbar">

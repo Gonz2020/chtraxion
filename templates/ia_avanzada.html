@@ -1,5 +1,25 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="card"><h2>IA Avanzada Capital Humano</h2><p class="muted">Preparado para análisis de CV, matching vacante-candidato, preguntas automáticas y resumen ejecutivo de entrevista.</p></div>
-<div class="grid two"><div class="card"><h3>Funciones IA</h3><ul><li>Analizador de CV y experiencia.</li><li>Matching contra vacante.</li><li>Generación de preguntas por puesto.</li><li>Resumen de entrevista y recomendación.</li><li>Detección de riesgos operativos.</li></ul></div><div class="card"><h3>Candidatos recientes</h3><table><thead><tr><th>Nombre</th><th>Puesto</th><th>Etapa</th><th>IA</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small" href="{{ url_for('ia_candidato', candidato_id=r.id) }}">Analizar</a></td></tr>{% endfor %}</tbody></table></div></div>
+<div class="corp-hero small-corp">
+  <div>
+    <span class="eyebrow">Inteligencia aplicada</span>
+    <h2>IA Capital Humano</h2>
+    <p>Análisis de candidatos, generación de preguntas, compatibilidad por puesto y recomendaciones para acelerar la cobertura.</p>
+  </div>
+</div>
+<div class="corp-grid">
+  <div class="card executive-card">
+    <div class="section-head"><h3>Capacidades IA</h3><span>Fase piloto</span></div>
+    <div class="ia-cards">
+      <div><b>01</b><h4>Análisis candidato</h4><p>Evalúa experiencia, documentación, entrevista y evaluación médica/técnica.</p></div>
+      <div><b>02</b><h4>Preguntas por puesto</h4><p>Genera entrevistas para montacarguista, patinero y perfiles operativos.</p></div>
+      <div><b>03</b><h4>Riesgo operativo</h4><p>Detecta faltantes de datos, riesgos de transporte, médico o técnica.</p></div>
+      <div><b>04</b><h4>Recomendaciones</h4><p>Sugiere acciones para avanzar o detener candidatos.</p></div>
+    </div>
+  </div>
+  <div class="card executive-card">
+    <div class="section-head"><h3>Candidatos recientes</h3><span>Analizar</span></div>
+    <table class="exec-table"><thead><tr><th>Nombre</th><th>Puesto</th><th>Etapa</th><th></th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.nombre}}</td><td>{{r.puesto}}</td><td>{{r.etapa}}</td><td><a class="btn small primary" href="{{ url_for('ia_candidato', candidato_id=r.id) }}">IA</a></td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
 {% endblock %}

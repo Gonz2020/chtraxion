@@ -1,5 +1,77 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="kpi-grid"><div class="kpi"><span>Reclutamiento</span><b>{{ reclutamiento }}</b></div><div class="kpi"><span>Contratación</span><b>{{ contratacion }}</b></div><div class="kpi"><span>Activos</span><b>{{ activos }}</b></div><div class="kpi"><span>RFC actualizados</span><b>{{ rfc.c }}</b></div><div class="kpi"><span>Costo RFC</span><b>${{ '%.2f'|format(rfc.total or 0) }}</b></div></div>
-<div class="grid two"><div class="card"><h3>Cobertura por puesto</h3><table><thead><tr><th>Puesto</th><th>Requerido</th><th>Activo</th><th>Cobertura</th></tr></thead><tbody>{% for x in cobertura %}<tr><td>{{x.puesto}}</td><td>{{x.requerido}}</td><td>{{x.activo}}</td><td><div class="bar"><span style="width:{{ x.cobertura if x.cobertura<100 else 100 }}%"></span></div>{{x.cobertura}}%</td></tr>{% endfor %}</tbody></table></div><div class="card"><h3>Visión ejecutiva</h3><p class="muted">Indicadores consolidados de cobertura, costo administrativo, avance del pipeline y conversión a activo.</p><div class="big-number">{{ kpis.contratados or activos }}</div><p>Contratados / Activos</p></div></div>
+<div class="corp-hero">
+  <div>
+    <span class="eyebrow">Visión Dirección</span>
+    <h2>Dashboard Corporativo Capital Humano</h2>
+    <p>Indicadores consolidados de cobertura, headcount, pipeline de reclutamiento, contratación y riesgos operativos por puesto y UDN.</p>
+  </div>
+  <div class="corp-score">
+    <span>Cobertura estimada</span>
+    {% set cobertura_prom = (cobertura|sum(attribute='pct') / (cobertura|length)) if cobertura else 0 %}
+    <b>{{ '%.0f'|format(cobertura_prom) }}%</b>
+  </div>
+</div>
+
+<div class="corp-kpis">
+  <div class="corp-kpi"><span>HC / Base</span><b>{{ kpis.total }}</b><small>Candidatos registrados</small></div>
+  <div class="corp-kpi"><span>En Reclutamiento</span><b>{{ reclutamiento }}</b><small>Registro, entrevista, oferta y evaluación</small></div>
+  <div class="corp-kpi"><span>En Contratación</span><b>{{ contratacion }}</b><small>Documentación, inducción y entrega</small></div>
+  <div class="corp-kpi"><span>Activos</span><b>{{ activos }}</b><small>Ingresos concluidos</small></div>
+  <div class="corp-kpi"><span>RFC Actualizados</span><b>{{ rfc.c or 0 }}</b><small>Costo: ${{ '%.2f'|format(rfc.total or 0) }}</small></div>
+</div>
+
+<div class="corp-grid">
+  <div class="card executive-card">
+    <div class="section-head"><h3>Cobertura por puestos clave</h3><span>Power BI style</span></div>
+    <table class="exec-table">
+      <thead><tr><th>Puesto</th><th>Req/Base</th><th>Activos</th><th>Vacantes</th><th>Cobertura</th></tr></thead>
+      <tbody>
+      {% for x in cobertura %}
+      <tr>
+        <td><b>{{ x.puesto }}</b></td>
+        <td>{{ x.total }}</td>
+        <td>{{ x.activos }}</td>
+        <td>{{ x.vacantes }}</td>
+        <td>
+          <div class="coverage-line"><span style="width:{{ x.pct if x.pct < 100 else 100 }}%"></span></div>
+          <small class="{{ 'ok' if x.pct>=95 else 'warn' if x.pct>=85 else 'danger' }}">{{ x.pct }}%</small>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Aún no existe información suficiente para calcular cobertura.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card executive-card">
+    <div class="section-head"><h3>Semáforo ejecutivo</h3><span>Riesgo de cobertura</span></div>
+    <div class="traffic-panel">
+      {% set riesgo = 'green' if cobertura_prom >= 95 else 'yellow' if cobertura_prom >= 85 else 'red' %}
+      <div class="traffic-light {{ riesgo }}"></div>
+      <h4>{{ 'Cobertura estable' if riesgo=='green' else 'Cobertura en observación' if riesgo=='yellow' else 'Cobertura crítica' }}</h4>
+      <p>El semáforo resume el nivel de cobertura global con base en puestos clave y headcount/candidatos activos.</p>
+    </div>
+  </div>
+</div>
+
+<div class="corp-grid lower">
+  <div class="card executive-card">
+    <div class="section-head"><h3>Pipeline de Capital Humano</h3><span>De candidato a activo</span></div>
+    <div class="funnel">
+      <div><b>{{ reclutamiento }}</b><span>Reclutamiento</span></div>
+      <div><b>{{ contratacion }}</b><span>Contratación</span></div>
+      <div><b>{{ activos }}</b><span>Activos</span></div>
+    </div>
+  </div>
+  <div class="card executive-card">
+    <div class="section-head"><h3>Recomendación IA</h3><span>Próxima acción</span></div>
+    <div class="ai-recommend">
+      <h4>Priorizar puestos con cobertura menor a 85%</h4>
+      <p>Revisar fuentes de reclutamiento, fechas compromiso, disponibilidad por localidad y avance de candidatos en entrevista/documentación.</p>
+      <a class="btn primary" href="{{ url_for('ia_avanzada') }}">Abrir IA Capital Humano</a>
+    </div>
+  </div>
+</div>
 {% endblock %}

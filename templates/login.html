@@ -3,214 +3,187 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Capital Humano Traxión</title>
-
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
+    <title>Acceso | Capital Humano Traxión</title>
     <style>
-
-        :root {
-            --traxion-green: #D0DF00;
-            --traxion-dark: #4B4F54;
-            --traxion-gray: #F4F5F7;
-            --traxion-text: #555;
+        :root{
+            --traxion-lime:#D0DF00;
+            --traxion-dark:#3f444b;
+            --traxion-gray:#63666A;
+            --traxion-light:#f4f6f8;
+            --border:#d9dee5;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Montserrat',sans-serif;
+        *{
+            box-sizing:border-box;
         }
 
-        body {
-            min-height: 100vh;
-            background: #f2f3f5;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
+        body{
+            margin:0;
+            min-height:100vh;
+            font-family:Arial, Helvetica, sans-serif;
+            background:
+                radial-gradient(circle at top right, rgba(208,223,0,.20), transparent 28%),
+                linear-gradient(135deg, #f8fafc 0%, #eef1f5 100%);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#20242a;
         }
 
-            body::before {
-                content: "";
-                position: absolute;
-                width: 1200px;
-                height: 1200px;
-                border: 2px solid rgba(208,223,0,.15);
-                transform: rotate(-35deg);
-                right: -500px;
-                top: -350px;
-            }
-
-            body::after {
-                content: "";
-                position: absolute;
-                width: 1000px;
-                height: 1000px;
-                border: 2px solid rgba(100,100,100,.08);
-                transform: rotate(-35deg);
-                left: -500px;
-                bottom: -400px;
-            }
-
-        .login-card {
-            position: relative;
-            z-index: 2;
-            width: 460px;
-            background: white;
-            padding: 45px;
-            border-radius: 24px;
-            box-shadow: 0 20px 50px rgba(0,0,0,.08);
+        .login-card{
+            width:100%;
+            max-width:360px;
+            background:#ffffff;
+            border:1px solid var(--border);
+            border-radius:18px;
+            padding:34px 30px 28px;
+            box-shadow:0 22px 55px rgba(0,0,0,.12);
         }
 
-        .logo {
-            width: 240px;
-            display: block;
-            margin: 0 auto 20px auto;
+        .login-logo{width:240px;max-width:82%;display:block;margin:0 auto 18px auto;}
+        .brand{
+            letter-spacing:9px;
+            font-size:25px;
+            font-weight:800;
+            color:var(--traxion-dark);
+            margin:0;
         }
 
-        .subtitle {
-            color: #D0DF00;
-            font-weight: 700;
-            font-size: 18px;
-            margin-bottom: 15px;
-            text-align: center;
+        .module{
+            margin-top:4px;
+            color:var(--traxion-lime);
+            font-size:14px;
+            font-weight:700;
         }
 
-        .description {
-            color: #666;
-            font-size: 14px;
-            line-height: 1.6;
-            text-align: center;
-            margin-bottom: 30px;
+        .subtitle{
+            margin:15px 0 22px;
+            color:#59616e;
+            font-size:12px;
+            line-height:1.35;
         }
 
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #777;
-            margin-bottom: 8px;
-            letter-spacing: 1px;
+        label{
+            display:block;
+            margin-bottom:6px;
+            color:#707986;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:2px;
+            text-transform:uppercase;
         }
 
-        .form-group {
-            margin-bottom: 18px;
+        .form-group{
+            margin-bottom:13px;
         }
 
-        input {
-            width: 100%;
-            padding: 14px;
-            border-radius: 12px;
-            border: 1px solid #D8D8D8;
-            font-size: 14px;
-            outline: none;
+        input{
+            width:100%;
+            height:39px;
+            border:1px solid #cfd6df;
+            border-radius:10px;
+            padding:0 12px;
+            font-size:14px;
+            outline:none;
+            transition:.2s ease;
         }
 
-            input:focus {
-                border: 2px solid #D0DF00;
-            }
-
-        .btn-login {
-            width: 100%;
-            border: none;
-            background: #D0DF00;
-            color: #000;
-            font-weight: 700;
-            font-size: 16px;
-            padding: 15px;
-            border-radius: 12px;
-            cursor: pointer;
-            margin-top: 10px;
-            transition: .3s;
+        input:focus{
+            border-color:var(--traxion-lime);
+            box-shadow:0 0 0 3px rgba(208,223,0,.23);
         }
 
-            .btn-login:hover {
-                transform: translateY(-2px);
-            }
-
-        .footer {
-            margin-top: 30px;
-            text-align: center;
-            color: #777;
-            font-size: 11px;
-            line-height: 1.5;
+        .btn-login{
+            width:100%;
+            margin-top:4px;
+            height:41px;
+            border:0;
+            border-radius:10px;
+            background:var(--traxion-lime);
+            color:#000;
+            font-size:14px;
+            font-weight:800;
+            cursor:pointer;
+            transition:.2s ease;
         }
 
-        .version {
-            margin-top: 10px;
-            color: #999;
-            font-size: 10px;
+        .btn-login:hover{
+            filter:brightness(.96);
+            transform:translateY(-1px);
         }
 
-        .alert {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 10px;
-            background: #fff3cd;
-            color: #856404;
-            font-size: 13px;
+        .error-message{
+            background:#fde8e8;
+            color:#9b1c1c;
+            border-left:4px solid #e02424;
+            border-radius:8px;
+            padding:9px 11px;
+            margin-bottom:14px;
+            font-size:12px;
+            font-weight:600;
+        }
+
+        .footer{
+            margin-top:20px;
+            padding-top:14px;
+            border-top:1px solid #eef1f4;
+            text-align:center;
+            color:#67707d;
+            font-size:10.5px;
+            line-height:1.35;
+        }
+
+        .footer strong{
+            display:block;
+            color:#3f444b;
+            font-size:11px;
+            margin:2px 0;
+        }
+
+        .version{
+            margin-top:7px;
+            color:#9aa2ad;
+            font-size:10px;
         }
     </style>
 </head>
-
 <body>
-
-    <div class="login-card">
-
-        <img src="{{ url_for('static', filename='img/logo_traxion.png') }}"
-             alt="Traxión"
-             class="logo">
-
-        <div class="subtitle">
-            Capital Humano
-        </div>
-
-        <div class="description">
-            Gestión integral del ciclo de vida del colaborador,
+    <main class="login-card">
+        <img class="login-logo" src="{{ url_for('static', filename='img/logo_traxion.png') }}" alt="Traxión">
+        <div class="module">Capital Humano</div>
+        <p class="subtitle">
+            Gestión integral del ciclo de vida del colaborador,<br>
             desde el reclutamiento hasta la incorporación.
-        </div>
+        </p>
 
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        {% for msg in messages %}
-        <div class="alert">{{ msg }}</div>
-        {% endfor %}
-        {% endif %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="error-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
         {% endwith %}
 
-        <form method="POST">
-
+        <form method="POST" action="{{ url_for('login') }}">
             <div class="form-group">
-                <label>USUARIO</label>
-                <input type="text" name="username" required>
+                <label for="usuario">Usuario</label>
+                <input id="usuario" name="usuario" type="text" autocomplete="username" required autofocus>
             </div>
 
             <div class="form-group">
-                <label>CONTRASEÑA</label>
-                <input type="password" name="password" required>
+                <label for="password">Contraseña</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required>
             </div>
 
-            <button class="btn-login" type="submit">
-                Entrar
-            </button>
-
+            <button class="btn-login" type="submit">Entrar</button>
         </form>
 
         <div class="footer">
-
-            Desarrollado por<br>
-            Gonzalo Luna<br>
+            Desarrollado por
+            <strong>Gonzalo Luna</strong>
             Arquitecto de Soluciones Digitales
-
-            <div class="version">
-                Plataforma Integral de Capital Humano v3.1
-            </div>
-
+            <div class="version">Versión 3.2 Corporativo</div>
         </div>
-
-    </div>
-
+    </main>
 </body>
 </html>
