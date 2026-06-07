@@ -6,11 +6,13 @@ integración Access Kiosk, dashboard corporativo, IA avanzada y multi UDN.
 """
 from __future__ import annotations
 import os, json, sqlite3
+from functools import wraps
 from pathlib import Path
 from datetime import datetime, date
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, session
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
@@ -27,7 +29,11 @@ DB_PATH = DATA_DIR / "capital_humano_traxion.db"
 EXCEL_BASE = DATA_DIR / "DESARROLLO AT - SISTEMA.xlsx"
 
 app = Flask(__name__)
-app.secret_key = "traxion_ch_fase2_6_ia_reportes_admin"
+app.secret_key = os.environ.get("SECRET_KEY", "traxion_ch_fase3_admin_seguridad")
+
+ADMIN_USER = os.environ.get("ADMIN_USER", "Administrador")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Tequila2026")
+PUBLIC_ENDPOINTS = {"login", "health", "static"}
 
 ETAPAS = [
     "Registro", "Entrevista", "Oferta Laboral", "Servicio Medico",
@@ -253,9 +259,169 @@ def init_db():
             udn TEXT,
             activo INTEGER DEFAULT 1
         )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios_sistema(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            usuario TEXT UNIQUE NOT NULL,
+            email TEXT,
+            password_hash TEXT NOT NULL,
+            rol TEXT NOT NULL DEFAULT 'Consulta',
+            udn_permitidas TEXT DEFAULT 'TODAS',
+            activo INTEGER DEFAULT 1,
+            ultimo_acceso TEXT,
+            fecha_creacion TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS roles_sistema(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rol TEXT UNIQUE NOT NULL,
+            descripcion TEXT,
+            permisos_json TEXT,
+            activo INTEGER DEFAULT 1
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS auditoria_sistema(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario TEXT,
+            accion TEXT,
+            modulo TEXT,
+            detalle TEXT,
+            ip TEXT,
+            fecha TEXT
+        )""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS configuracion_sistema(
+            clave TEXT PRIMARY KEY,
+            valor TEXT,
+            descripcion TEXT,
+            updated_at TEXT
+        )""")
         conn.commit()
+    seed_security_once()
     seed_from_excel_once()
 
+
+
+
+def seed_security_once():
+    roles = {
+        "Administrador": ["*"] ,
+        "RH Corporativo": ["dashboard", "candidatos", "reportes", "catalogos", "admin"],
+        "Reclutador": ["dashboard", "candidatos", "entrevistas", "hoja_ruta"],
+        "Servicio Médico": ["dashboard", "servicio_medico", "evaluacion"],
+        "Operaciones": ["dashboard", "evaluacion_tecnica", "induccion", "entrega_operaciones"],
+        "Capacitación": ["dashboard", "induccion", "capacitacion", "dc3"],
+        "Consulta": ["dashboard", "reportes"]
+    }
+    for rol, permisos in roles.items():
+        try:
+            execute("INSERT INTO roles_sistema(rol,descripcion,permisos_json,activo) VALUES(?,?,?,1)", (rol, f"Rol {rol}", json.dumps(permisos, ensure_ascii=False)))
+        except Exception:
+            pass
+    admin = query("SELECT id FROM usuarios_sistema WHERE usuario=?", (ADMIN_USER,), one=True)
+    if not admin:
+        execute("""INSERT INTO usuarios_sistema(nombre,usuario,email,password_hash,rol,udn_permitidas,activo,fecha_creacion)
+                   VALUES(?,?,?,?,?,?,1,?)""",
+                ("Administrador del Sistema", ADMIN_USER, "", generate_password_hash(ADMIN_PASSWORD), "Administrador", "TODAS", now_str()))
+
+
+def audit(accion, modulo="Sistema", detalle=""):
+    try:
+        execute("INSERT INTO auditoria_sistema(usuario,accion,modulo,detalle,ip,fecha) VALUES(?,?,?,?,?,?)",
+                (session.get("usuario", "Sistema"), accion, modulo, detalle, request.headers.get("X-Forwarded-For", request.remote_addr or ""), now_str()))
+    except Exception:
+        pass
+
+
+def is_logged_in():
+    return bool(session.get("user_id"))
+
+
+def current_user():
+    if not session.get("user_id"):
+        return None
+    return {
+        "id": session.get("user_id"),
+        "nombre": session.get("nombre", ""),
+        "usuario": session.get("usuario", ""),
+        "rol": session.get("rol", "Consulta"),
+        "udn_permitidas": session.get("udn_permitidas", "TODAS"),
+    }
+
+
+def has_role(*roles):
+    return session.get("rol") in roles or session.get("rol") == "Administrador"
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not is_logged_in():
+            return redirect(url_for("login", next=request.path))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not is_logged_in():
+            return redirect(url_for("login", next=request.path))
+        if not has_role("Administrador", "RH Corporativo"):
+            flash("No tienes permiso para acceder a Administración.", "error")
+            audit("Acceso denegado", "Administración", request.path)
+            return redirect(url_for("dashboard"))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.context_processor
+def inject_user():
+    return {"current_user": current_user()}
+
+
+@app.before_request
+def require_login_global():
+    endpoint = request.endpoint or ""
+    if endpoint in PUBLIC_ENDPOINTS or endpoint.startswith("static"):
+        return None
+    if not is_logged_in():
+        return redirect(url_for("login", next=request.path))
+    return None
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "app": "Traxion Capital Humano", "version": "Fase 3.1 Seguridad", "time": now_str()})
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        usuario = request.form.get("usuario", "").strip()
+        password = request.form.get("password", "")
+        row = query("SELECT * FROM usuarios_sistema WHERE usuario=? AND activo=1", (usuario,), one=True)
+        if row and check_password_hash(row["password_hash"], password):
+            session.clear()
+            session["user_id"] = row["id"]
+            session["nombre"] = row["nombre"]
+            session["usuario"] = row["usuario"]
+            session["rol"] = row["rol"]
+            session["udn_permitidas"] = row["udn_permitidas"] or "TODAS"
+            execute("UPDATE usuarios_sistema SET ultimo_acceso=? WHERE id=?", (now_str(), row["id"]))
+            audit("Inicio de sesión", "Seguridad", f"Usuario {usuario}")
+            return redirect(request.args.get("next") or url_for("dashboard"))
+        flash("Usuario o contraseña incorrectos.", "error")
+        audit("Login fallido", "Seguridad", usuario)
+    return render_template("login.html", title="Acceso Plataforma CH")
+
+
+@app.route("/logout")
+def logout():
+    audit("Cierre de sesión", "Seguridad", session.get("usuario", ""))
+    session.clear()
+    return redirect(url_for("login"))
 
 def log(candidato_id, accion, detalle, usuario="Sistema"):
     execute("INSERT INTO actividad(candidato_id,accion,detalle,usuario,fecha) VALUES(?,?,?,?,?)", (candidato_id, accion, detalle, usuario, now_str()))
@@ -1188,7 +1354,104 @@ def ia_avanzada():
     rows = query("SELECT id, folio, nombre, puesto, udn, etapa FROM candidatos ORDER BY id DESC LIMIT 200")
     return render_template("ia_avanzada.html", rows=rows, active="ia", page_title="IA Avanzada Capital Humano")
 
+
+
+# ==============================
+# FASE 3.1 - Administración, roles, UDN y auditoría
+# ==============================
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    usuarios = query("SELECT id,nombre,usuario,email,rol,udn_permitidas,activo,ultimo_acceso,fecha_creacion FROM usuarios_sistema ORDER BY id")
+    roles = query("SELECT * FROM roles_sistema ORDER BY rol")
+    udns = query("SELECT almacen FROM catalogo_udn WHERE activo=1 ORDER BY almacen")
+    auditoria = query("SELECT * FROM auditoria_sistema ORDER BY id DESC LIMIT 100")
+    return render_template("admin.html", active="admin", page_title="Administración", usuarios=usuarios, roles=roles, udns=udns, auditoria=auditoria)
+
+
+@app.route("/admin/usuarios/nuevo", methods=["POST"])
+@admin_required
+def admin_usuario_nuevo():
+    nombre = request.form.get("nombre", "").strip()
+    usuario = request.form.get("usuario", "").strip()
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "").strip()
+    rol = request.form.get("rol", "Consulta").strip()
+    udn_list = request.form.getlist("udn")
+    udn_permitidas = "TODAS" if "TODAS" in udn_list or not udn_list else "|".join(udn_list)
+    if not nombre or not usuario or not password:
+        flash("Captura nombre, usuario y contraseña.", "error")
+        return redirect(url_for("admin_panel"))
+    try:
+        execute("""INSERT INTO usuarios_sistema(nombre,usuario,email,password_hash,rol,udn_permitidas,activo,fecha_creacion)
+                   VALUES(?,?,?,?,?,?,1,?)""", (nombre, usuario, email, generate_password_hash(password), rol, udn_permitidas, now_str()))
+        audit("Alta usuario", "Administración", f"{usuario} - {rol}")
+        flash("Usuario creado correctamente.", "success")
+    except Exception as e:
+        flash(f"No se pudo crear usuario. Puede que el usuario ya exista. Detalle: {e}", "error")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/usuarios/<int:user_id>/actualizar", methods=["POST"])
+@admin_required
+def admin_usuario_actualizar(user_id):
+    rol = request.form.get("rol", "Consulta").strip()
+    activo = 1 if request.form.get("activo") == "1" else 0
+    udn_list = request.form.getlist("udn")
+    udn_permitidas = "TODAS" if "TODAS" in udn_list or not udn_list else "|".join(udn_list)
+    execute("UPDATE usuarios_sistema SET rol=?, udn_permitidas=?, activo=? WHERE id=?", (rol, udn_permitidas, activo, user_id))
+    audit("Actualiza usuario", "Administración", f"ID {user_id} rol={rol} activo={activo}")
+    flash("Usuario actualizado.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/usuarios/<int:user_id>/reset", methods=["POST"])
+@admin_required
+def admin_usuario_reset(user_id):
+    new_pass = request.form.get("password", "").strip()
+    if not new_pass:
+        flash("Captura una nueva contraseña.", "error")
+        return redirect(url_for("admin_panel"))
+    execute("UPDATE usuarios_sistema SET password_hash=? WHERE id=?", (generate_password_hash(new_pass), user_id))
+    audit("Reset password", "Administración", f"ID {user_id}")
+    flash("Contraseña actualizada.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/roles/agregar", methods=["POST"])
+@admin_required
+def admin_roles_agregar():
+    rol = request.form.get("rol", "").strip()
+    descripcion = request.form.get("descripcion", "").strip()
+    permisos = request.form.get("permisos", "").strip()
+    if not rol:
+        flash("Captura el nombre del rol.", "error")
+        return redirect(url_for("admin_panel"))
+    try:
+        permisos_json = json.dumps([p.strip() for p in permisos.split(",") if p.strip()], ensure_ascii=False)
+        execute("INSERT INTO roles_sistema(rol,descripcion,permisos_json,activo) VALUES(?,?,?,1)", (rol, descripcion, permisos_json))
+        audit("Alta rol", "Administración", rol)
+        flash("Rol creado correctamente.", "success")
+    except Exception as e:
+        flash(f"No se pudo crear el rol: {e}", "error")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/auditoria/exportar")
+@admin_required
+def admin_auditoria_exportar():
+    rows = query("SELECT * FROM auditoria_sistema ORDER BY id DESC")
+    return export_df(rows, f"Auditoria_Plataforma_CH_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
+# Inicialización compatible con Render/Gunicorn y ejecución local.
+# Gunicorn importa app.py, por eso la base se prepara al cargar el módulo.
+try:
+    init_db()
+    print("[OK] Plataforma CH inicializada correctamente.")
+except Exception as e:
+    print(f"[WARN] No se pudo inicializar la base al arrancar: {e}")
+
 if __name__ == "__main__":
-    print("="*70); print("PLATAFORMA INTEGRAL DE CAPITAL HUMANO TRAXION - FASE 2.7 - 3.0"); print("="*70)
-    init_db(); print("[3/4] Preparando servidor Flask..."); print("[4/4] Abre en tu navegador: http://127.0.0.1:5000")
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
+    print("="*70); print("PLATAFORMA INTEGRAL DE CAPITAL HUMANO TRAXION - FASE 3.1 SEGURIDAD"); print("="*70)
+    print("[3/4] Preparando servidor Flask..."); print("[4/4] Abre en tu navegador: http://127.0.0.1:5000")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False, use_reloader=False)

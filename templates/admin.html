@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% set active='admin' %}
+{% set page_title='Administración y Seguridad' %}
+{% block content %}
+<div class="hero-minimal small-hero">
+  <div class="hero-content">
+    <span class="eyebrow">Gobierno de Plataforma</span>
+    <h2>Usuarios, roles, cobertura UDN y auditoría</h2>
+    <p>Administra accesos, permisos y trazabilidad antes de liberar la plataforma a reclutadores, servicio médico y operaciones.</p>
+  </div>
+</div>
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card">
+    <h3>Nuevo usuario</h3>
+    <form method="post" action="{{ url_for('admin_usuario_nuevo') }}" class="form-grid">
+      <label>Nombre<input name="nombre" required></label>
+      <label>Usuario<input name="usuario" required></label>
+      <label>Email<input name="email" type="email"></label>
+      <label>Password inicial<input name="password" type="password" required></label>
+      <label>Rol<select name="rol">{% for r in roles %}<option>{{ r.rol }}</option>{% endfor %}</select></label>
+      <label>UDN permitidas<select name="udn" multiple size="5"><option value="TODAS" selected>TODAS</option>{% for u in udns %}<option value="{{ u.almacen }}">{{ u.almacen }}</option>{% endfor %}</select></label>
+      <button class="btn primary" style="grid-column:1/-1">Crear usuario</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Nuevo rol</h3>
+    <form method="post" action="{{ url_for('admin_roles_agregar') }}" class="form-grid">
+      <label>Rol<input name="rol" required placeholder="Ej. Auditor RH"></label>
+      <label>Descripción<input name="descripcion" placeholder="Descripción del rol"></label>
+      <label style="grid-column:1/-1">Permisos separados por coma<input name="permisos" placeholder="dashboard,candidatos,reportes"></label>
+      <button class="btn dark" style="grid-column:1/-1">Agregar rol</button>
+    </form>
+  </div>
+</div>
+<div class="card" style="margin-top:18px">
+  <h3>Usuarios del sistema</h3>
+  <table><thead><tr><th>ID</th><th>Nombre</th><th>Usuario</th><th>Rol</th><th>UDN</th><th>Activo</th><th>Último acceso</th><th>Acciones</th></tr></thead><tbody>
+  {% for u in usuarios %}
+    <tr>
+      <td>{{ u.id }}</td><td>{{ u.nombre }}</td><td>{{ u.usuario }}</td><td>{{ u.rol }}</td><td>{{ u.udn_permitidas }}</td><td>{{ 'Sí' if u.activo else 'No' }}</td><td>{{ u.ultimo_acceso or '' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_usuario_actualizar', user_id=u.id) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select name="rol">{% for r in roles %}<option {% if r.rol==u.rol %}selected{% endif %}>{{ r.rol }}</option>{% endfor %}</select>
+          <select name="udn" multiple size="2"><option value="TODAS" {% if u.udn_permitidas=='TODAS' %}selected{% endif %}>TODAS</option>{% for x in udns %}<option value="{{ x.almacen }}" {% if x.almacen in (u.udn_permitidas or '') %}selected{% endif %}>{{ x.almacen }}</option>{% endfor %}</select>
+          <select name="activo"><option value="1" {% if u.activo %}selected{% endif %}>Activo</option><option value="0" {% if not u.activo %}selected{% endif %}>Inactivo</option></select>
+          <button class="btn blue">Guardar</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_usuario_reset', user_id=u.id) }}" style="display:flex;gap:6px;margin-top:6px"><input name="password" type="password" placeholder="Nuevo password"><button class="btn dark">Reset</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody></table>
+</div>
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card"><h3>Roles configurados</h3><table><thead><tr><th>Rol</th><th>Descripción</th><th>Permisos</th></tr></thead><tbody>{% for r in roles %}<tr><td>{{ r.rol }}</td><td>{{ r.descripcion }}</td><td><small>{{ r.permisos_json }}</small></td></tr>{% endfor %}</tbody></table></div>
+  <div class="card"><h3>Auditoría reciente</h3><p><a class="btn blue" href="{{ url_for('admin_auditoria_exportar') }}">Exportar auditoría</a></p><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Módulo</th></tr></thead><tbody>{% for a in auditoria %}<tr><td>{{ a.fecha }}</td><td>{{ a.usuario }}</td><td>{{ a.accion }}</td><td>{{ a.modulo }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}

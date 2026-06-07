@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acceso Plataforma CH</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <style>
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f8;font-family:Arial, sans-serif;margin:0;}
+    .login-bg{position:fixed;inset:0;background:radial-gradient(circle at 80% 20%,rgba(208,223,0,.35),transparent 28%),linear-gradient(135deg,#fff,#eef1f4);}
+    .login-card{position:relative;width:420px;background:white;border:1px solid #dde3ea;border-radius:22px;box-shadow:0 24px 60px rgba(0,0,0,.15);padding:34px;}
+    .brand-login{font-size:28px;font-weight:800;letter-spacing:8px;color:#3f444b;margin-bottom:6px;}
+    .subtitle{color:#d0df00;font-weight:700;margin-bottom:8px;}
+    .muted{color:#68707b;font-size:14px;margin-bottom:24px;}
+    .field{margin-bottom:14px}.field label{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#68707b;font-weight:700;display:block;margin-bottom:6px}.field input{width:100%;box-sizing:border-box;border:1px solid #cfd6df;border-radius:12px;padding:13px 14px;font-size:15px}.login-btn{width:100%;border:none;border-radius:12px;padding:14px;background:#d0df00;color:#1f252c;font-weight:800;font-size:15px;cursor:pointer}.hint{margin-top:18px;color:#68707b;font-size:12px;background:#f7f9fb;border-radius:12px;padding:12px}.flash{padding:12px;border-radius:10px;margin-bottom:12px}.flash.error{background:#fde2e2;color:#a40000}.flash.success{background:#e8f6dc;color:#2d6b00}
+  </style>
+</head>
+<body>
+  <div class="login-bg"></div>
+  <main class="login-card">
+    <div class="brand-login">TRAXIÓN</div>
+    <div class="subtitle">Capital Humano</div>
+    <p class="muted">Acceso seguro a la Plataforma Integral de Capital Humano.</p>
+    {% with messages=get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat,msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+    <form method="post">
+      <div class="field"><label>Usuario</label><input name="usuario" autofocus required autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input name="password" type="password" required autocomplete="current-password"></div>
+      <button class="login-btn">Entrar</button>
+    </form>
+    <div class="hint"><b>Usuario inicial:</b> Administrador<br><b>Password inicial:</b> Tequila2026</div>
+  </main>
+</body>
+</html>
