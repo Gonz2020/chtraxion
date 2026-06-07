@@ -4,3 +4,5 @@ openpyxl
 werkzeug
 reportlab
 gunicorn
+qrcode
+pillow
