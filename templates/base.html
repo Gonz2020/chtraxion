@@ -7,64 +7,33 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-<div class="app-shell">
+<div class="app">
   <aside class="sidebar">
     <div class="brand">
       <img class="brand-img" src="{{ url_for('static', filename='img/logo_traxion.png') }}" alt="Traxión">
-      <div class="brand-title">Capital Humano</div>
-      <div class="brand-subtitle">De registro a laborar</div>
+      <div class="sub">Capital Humano</div>
+      <div class="caption">De registro a laborar</div>
     </div>
-
     <nav class="menu">
-      {% set items=[
-        ('dashboard','🏠','Inicio / Dashboard','dashboard'),
-        ('candidatos','👥','Candidatos','candidatos'),
-        ('entrevista','📝','Entrevistas','entrevistas_panel'),
-        ('hoja_ruta','🗺','Hoja de Ruta','hoja_ruta_panel'),
-        ('oferta','💼','Oferta Laboral','oferta_panel'),
-        ('evaluacion','🏥','Médico / Técnica','servicio_medico_panel'),
-        ('documentacion','📂','Documentación','documentacion_panel'),
-        ('induccion','🎓','Inducción','induccion_panel'),
-        ('headcount','📈','Headcount / Cobertura','headcount'),
-        ('seguimiento','⏱','Seguimiento / SLA','seguimiento'),
-        ('agenda','📅','Agenda Entrevistas','agenda'),
-        ('catalogos','📚','Catálogos','catalogos'),
-        ('ia','🤖','IA Capital Humano','ia'),
-        ('expediente','🗃','Expediente Digital','expediente_digital_panel'),
-        ('capacitacion','🎓','Capacitación / DC3','capacitacion_dc3_panel'),
-        ('firma','✍️','Firma Electrónica','firma_electronica_panel'),
-        ('access','🔐','Access Kiosk','access_kiosk_panel'),
-        ('corp','📊','Dashboard Corporativo','dashboard_corporativo'),
-        ('admin','⚙️','Administración','admin_panel')
-      ] %}
+      {% set items=[('inicio','🏠','Inicio','inicio_plataforma'),('dashboard','📊','Dashboard Ejecutivo','dashboard'),('candidatos','👥','Candidatos','candidatos'),('entrevista','📝','Entrevistas','entrevistas_panel'),('hoja_ruta','🗺','Hoja de Ruta','hoja_ruta_panel'),('oferta','💼','Oferta Laboral','oferta_panel'),('evaluacion','🏥','Médico / Técnica','servicio_medico_panel'),('documentacion','📂','Documentación','documentacion_panel'),('induccion','🎓','Inducción','induccion_panel'),('headcount','📈','Headcount / Cobertura','headcount'),('seguimiento','⏱','Seguimiento / SLA','seguimiento'),('agenda','📅','Agenda Entrevistas','agenda'),('catalogos','📚','Catálogos','catalogos'),('ia','🤖','IA Capital Humano','ia'),('expediente','🗃','Expediente Digital','expediente_digital_panel'),('capacitacion','🎓','Capacitación / DC3','capacitacion_dc3_panel'),('firma','✍️','Firma Electrónica','firma_electronica_panel'),('access','🔐','Access Kiosk','access_kiosk_panel'),('corp','🏢','Dashboard Corporativo','dashboard_corporativo'),('admin','⚙️','Administración','admin_panel')] %}
       {% for key,ico,txt,endpoint in items %}
-        <a class="menu-item {{ 'active' if active==key else '' }}" href="{{ url_for(endpoint) }}">
-          <span class="menu-icon">{{ ico }}</span><span>{{ txt }}</span>
-        </a>
+        <a class="{{ 'active' if active==key else '' }}" href="{{ url_for(endpoint) }}"><span>{{ ico }}</span><span>{{ txt }}</span></a>
       {% endfor %}
-      <a class="menu-item {{ 'active' if active=='reportes' else '' }}" href="{{ url_for('reportes_panel') }}">
-        <span class="menu-icon">📋</span><span>Reportes</span>
-      </a>
+      <a class="{{ 'active' if active=='reportes' else '' }}" href="{{ url_for('reportes_panel') }}">📋 Reportes</a>
     </nav>
-
-    <div class="sidebar-footer">
-      <b>Gonzalo Luna</b><br>
-      Arquitectura de Soluciones Digitales<br>
-      v3.2 Corporativo
-    </div>
+    <div class="footer"><b>Gonzalo Luna</b><br>Arquitectura de Soluciones Digitales<br>v3.2 Corporativo</div>
   </aside>
-
   <main class="main">
     <header class="topbar">
       <h1>{{ page_title or 'Plataforma Integral de Capital Humano' }}</h1>
       <div class="top-actions">
         {% if current_user %}<span class="user-pill">{{ current_user.nombre }} · {{ current_user.rol }}</span>{% endif %}
+        <a class="btn blue" href="{{ url_for('inicio_plataforma') }}">Inicio</a>
         <a class="btn blue" href="{{ url_for('candidato_nuevo') }}">+ Nuevo candidato</a>
         <a class="btn primary" href="{{ url_for('dashboard') }}">Dashboard</a>
         <a class="btn dark" href="{{ url_for('logout') }}">Salir</a>
       </div>
     </header>
-
     <section class="content">
       {% with messages=get_flashed_messages(with_categories=true) %}
         {% if messages %}

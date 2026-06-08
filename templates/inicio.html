@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% set active='inicio' %}
+{% set page_title='Inicio' %}
+{% block content %}
+<section class="welcome-hero">
+  <div class="welcome-copy">
+    <div class="welcome-eyebrow">PLATAFORMA INTEGRAL</div>
+    <h1><span>DE CAPITAL HUMANO</span></h1>
+    <div class="welcome-line"></div>
+    <h2>Bienvenido a la plataforma<br>Atracción y Talento de Capital Humano</h2>
+    <h3>Impulsando el talento desde el primer contacto hasta su incorporación.</h3>
+    <p>Gestiona reclutamiento, entrevistas, evaluaciones, documentación, contratación, inducción y seguimiento desde una sola plataforma integrada, ágil, segura y centrada en las personas.</p>
+    <div class="welcome-actions">
+      <a class="btn primary big" href="{{ url_for('dashboard') }}">Entrar al Dashboard <span>→</span></a>
+      <a class="btn blue big" href="{{ url_for('candidato_nuevo') }}">Registrar candidato</a>
+    </div>
+  </div>
+  <div class="welcome-orbit" aria-hidden="true">
+    <div class="orbit-ring ring-one"></div>
+    <div class="orbit-ring ring-two"></div>
+    <div class="orbit-center">👥</div>
+    <div class="orbit-item item-1">👤</div>
+    <div class="orbit-item item-2">🎓</div>
+    <div class="orbit-item item-3">📄</div>
+    <div class="orbit-item item-4">🏥</div>
+    <div class="orbit-item item-5">📈</div>
+    <div class="orbit-item item-6">📋</div>
+  </div>
+</section>
+
+<section class="welcome-modules">
+  <a class="welcome-card" href="{{ url_for('candidatos') }}">
+    <div class="welcome-icon">👥</div>
+    <h3>Reclutamiento</h3>
+    <p>Gestión de candidatos, requisiciones y publicación de vacantes.</p>
+    <span>→</span>
+  </a>
+  <a class="welcome-card" href="{{ url_for('entrevistas_panel') }}">
+    <div class="welcome-icon">🌟</div>
+    <h3>Evaluación</h3>
+    <p>Entrevistas, evaluaciones técnicas y psicométricas en un solo lugar.</p>
+    <span>→</span>
+  </a>
+  <a class="welcome-card" href="{{ url_for('documentacion_panel') }}">
+    <div class="welcome-icon">📂</div>
+    <h3>Documentación</h3>
+    <p>Administración de expedientes y documentos digitales.</p>
+    <span>→</span>
+  </a>
+  <a class="welcome-card" href="{{ url_for('induccion_panel') }}">
+    <div class="welcome-icon">✅</div>
+    <h3>Inducción</h3>
+    <p>Seguimiento estructurado para nuevas incorporaciones.</p>
+    <span>→</span>
+  </a>
+  <a class="welcome-card" href="{{ url_for('headcount') }}">
+    <div class="welcome-icon">📊</div>
+    <h3>Headcount</h3>
+    <p>Control de cobertura, vacantes y análisis de plantilla.</p>
+    <span>→</span>
+  </a>
+  <a class="welcome-card" href="{{ url_for('ia') }}">
+    <div class="welcome-icon">🧠</div>
+    <h3>IA Capital Humano</h3>
+    <p>Predicciones, riesgos y recomendaciones inteligentes.</p>
+    <span>→</span>
+  </a>
+</section>
+
+<section class="welcome-quote">
+  <div class="quote-mark">“</div>
+  <p>Las personas en movimiento impulsan nuestro presente y construyen el futuro de Traxión.</p>
+  <img src="{{ url_for('static', filename='img/logo_traxion_gray.png') }}" alt="Traxión">
+</section>
+{% endblock %}

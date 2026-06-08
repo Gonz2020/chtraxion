@@ -422,7 +422,7 @@ def login():
             session["udn_permitidas"] = row["udn_permitidas"] or "TODAS"
             execute("UPDATE usuarios_sistema SET ultimo_acceso=? WHERE id=?", (now_str(), row["id"]))
             audit("Inicio de sesión", "Seguridad", f"Usuario {usuario}")
-            return redirect(request.args.get("next") or url_for("dashboard"))
+            return redirect(request.args.get("next") or url_for("inicio_plataforma"))
         flash("Usuario o contraseña incorrectos.", "error")
         audit("Login fallido", "Seguridad", usuario)
     return render_template("login.html", title="Acceso Plataforma CH")
@@ -755,7 +755,12 @@ def candidatos_por_modulo(etapa=None, macro=None, q=''):
     return query(sql, tuple(params))
 
 @app.route("/")
-def inicio(): return redirect(url_for("dashboard"))
+def root():
+    return redirect(url_for("inicio_plataforma"))
+
+@app.route("/inicio")
+def inicio_plataforma():
+    return render_template("inicio.html", active="inicio", page_title="Inicio")
 
 @app.route("/dashboard")
 def dashboard():
