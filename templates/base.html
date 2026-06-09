@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
+<div class="mobile-overlay" id="mobileOverlay" onclick="toggleSidebar(false)"></div>
 <div class="app">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <img class="brand-img" src="{{ url_for('static', filename='img/logo_traxion.png') }}" alt="Traxión">
       <div class="sub">Capital Humano</div>
@@ -25,6 +26,7 @@
   </aside>
   <main class="main">
     <header class="topbar">
+      <button class="hamburger" type="button" aria-label="Abrir menú" onclick="toggleSidebar()">☰</button>
       <h1>{{ page_title or 'Plataforma Integral de Capital Humano' }}</h1>
       <div class="top-actions">
         {% if current_user %}<span class="user-pill">{{ current_user.nombre }} · {{ current_user.rol }}</span>{% endif %}
@@ -44,5 +46,16 @@
     </section>
   </main>
 </div>
+<script>
+function toggleSidebar(force){
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('mobileOverlay');
+  const open=(typeof force==='boolean') ? force : !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', open);
+  overlay.classList.toggle('show', open);
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') toggleSidebar(false); });
+document.querySelectorAll('.menu a').forEach(a=>a.addEventListener('click',()=>{ if(window.innerWidth<=1024) toggleSidebar(false); }));
+</script>
 </body>
 </html>
